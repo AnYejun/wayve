@@ -1,55 +1,69 @@
-# WAYVE — the event operating system
+<p align="center">
+  <img src="docs/banner.png" alt="WAYVE — the operating system for live events" width="100%">
+</p>
 
-Every phone at an event becomes a sensor. Meetings, radio, field reports, cameras and attendee questions land in **one live
-database** that HQ, field staff and AI agents act on, instead of phone calls and group chats.
+<p align="center">
+  <a href="https://wayve.fly.dev"><b>Live demo → wayve.fly.dev</b></a>
+  &nbsp;·&nbsp; Built in one day at <b>c0mpiled-17: Seoul</b> (COEX Startup Branch, Nov 9 2026)
+  <br>YC Request for Startups #3 — <i>a new operating system for the physical world</i>
+</p>
 
-**Live demo:** https://wayve.fly.dev · built in one day at **c0mpiled-17: Seoul** (COEX Startup Branch, Nov 9 2026) for YC's
-Request for Startups #3, *a new operating system for the physical world*.
+<p align="center">
+  <img alt="Node 24" src="https://img.shields.io/badge/Node-24-17150f?style=flat-square">
+  <img alt="React 19" src="https://img.shields.io/badge/React-19-17150f?style=flat-square">
+  <img alt="node:sqlite" src="https://img.shields.io/badge/node:sqlite-live%20DB-17150f?style=flat-square">
+  <img alt="SSE" src="https://img.shields.io/badge/SSE-realtime-58a069?style=flat-square">
+  <img alt="OpenAI" src="https://img.shields.io/badge/OpenAI-vision%20%C2%B7%20speech-6e56f0?style=flat-square">
+  <img alt="Fly.io" src="https://img.shields.io/badge/Fly.io-live-d99a29?style=flat-square">
+</p>
+
+---
+
+Events still run on radios, phone calls and group chats. **WAYVE** turns every phone at the venue into a sensor —
+fixed cameras, a meeting scribe, push-to-talk radio, staff and attendee chat — and lands it all in **one live database**
+that HQ, field staff and an AI crew act on. Nobody types into a tracker: work shows up where it happened, with evidence.
+
+<p align="center"><img src="docs/how-it-works.png" alt="How it works: phones → records → AI proposes → rules decide → every screen" width="100%"></p>
 
 ## What it does
 
 | Channel | Device | What WAYVE extracts | Where it lands |
 | --- | --- | --- | --- |
-| Meeting scribe | A phone on the meeting table | Tasks, owners, deadlines, decisions | Issue tracker (with the exact quote as evidence) |
-| Radio / walkie-talkie | Staff phones (push-to-talk) | Transcript (Korean, English or mixed), status updates ("done", "blocked") | Radio log with acks + issue changes |
-| Field reports | Staff chat (photos or a short video + a line of text) | Title, category, urgency, location, summary | Linked issue (same-spot reports merged) |
-| Camera vision | Fixed phones (one zone, or several: preset spots ship default regions) | Crowd level, people, queue + wait, free seats, walkway, hazards | Zone tracker → map, alerts, incidents |
-| Attendee chatbot | Attendee phones (QR poster / front screen) | Answers from the event info, requests, problems | Tracked tickets the attendee can follow |
-| Staff assistant | Dashboard (⌘K) and staff phones (chat + voice) | Answers from the live DB, commands ("mark WV-3 done") | Inline maps, issue cards, applied actions |
+| **Camera vision** | Fixed phones (one zone, or several — preset spots ship default regions) | Crowd level, people, queue + wait, free seats, walkway, hazards | Zone tracker → live map, alerts, incidents |
+| **Meeting scribe** | A phone on the meeting table or the stage desk | Tasks, owners, deadlines, decisions | Issue tracker, with the exact quote as evidence |
+| **Radio** | Staff phones (push-to-talk) | Transcript (Korean, English or mixed), "done" / "blocked" | Radio log with acks + issue changes |
+| **Field reports** | Staff chat: photos or a short video + one line | Title, category, urgency, place, summary | Linked issue (same-spot reports merge) |
+| **Attendee chat** | Attendee phones (QR poster or the front screen) | Answers from the event info, requests, problems | Tickets the attendee can follow live |
+| **Staff assistant** | Dashboard (⌘K) and staff phones (chat + voice) | Answers from the live DB, commands ("mark WV-3 done") | Inline maps, issue cards, applied actions |
 
-An **AI crew** (Queue Watcher, Safety Sentinel, Crowd Analyst, Meeting Secretary, Dispatcher, Concierge) is bound to devices,
-radios zone changes to HQ, auto-dispatches unowned issues to the best available staff (a pass re-offers it to the next person),
-and watches issues until they are resolved.
+An **AI crew** — Queue Watcher, Safety Sentinel, Crowd Analyst, Meeting Secretary, Dispatcher, Concierge — is bound to
+devices, radios zone changes to HQ, dispatches unowned issues to the best available person (a pass re-offers it to the
+next one), and watches every issue until it is resolved.
 
-**Korean and English.** Chat and voice replies follow the language of each message (decided in code, not guessed by the model);
-records on the dashboard (issue titles, summaries) stay English; transcripts keep the words as spoken.
+<p align="center"><img src="docs/screens.png" alt="Staff phone: swipe to take a task, photo reports in chat; the attendee QR on the front screen" width="100%"></p>
 
-## How it works
+## Built for a real floor
 
-```
-phones ──▶ immutable records ──▶ AI proposes ──▶ deterministic rules ──▶ live state ──▶ SSE ──▶ every screen
-(camera,    (observations,        (vision,          (zone tracker,         (zones,         (dashboard,
- scribe,     utterances,           transcription,    issue rules,           issues,          staff app,
- radio,      messages,             extraction)       dispatcher,            tasks)           attendee chat)
- reports)    reports)                                confidence gates)
-```
-
-- The model never writes the database: it returns strict-JSON proposals; rules apply them (auto above a confidence bar,
-  otherwise into a Suggestions inbox). Every change keeps its evidence and AI changes can be undone.
-- Zone tracking smooths noisy single frames (median of the last ≤ 5 frames, hysteresis, 2-of-3 confirmation for hazards).
-- No raw video or continuous audio is stored: frames and audio are analysed in memory and dropped; radio clips expire after 6 h.
+- **QR in, no accounts.** Staff and devices join with a QR and a name; only the organizer dashboard has a login.
+  Staff, camera and scribe links carry an organizer join key — the attendee poster code can only join as an attendee.
+- **Korean and English.** Chat and voice replies follow the language of each message (decided in code, not guessed);
+  dashboard records stay English; transcripts keep the words as spoken. Silence and prompt echoes never become messages.
+- **The model never writes the database.** It returns strict-JSON proposals; deterministic rules apply them (auto above a
+  confidence bar, otherwise into a Suggestions inbox). Every change keeps its evidence, and AI changes can be undone.
+- **Steady numbers.** The zone tracker smooths single frames (median of the last ≤ 5, hysteresis, 2-of-3 confirmation for hazards).
+- **Private by default.** No raw video or continuous audio is stored: frames and audio are analysed in memory and dropped;
+  radio clips expire after 6 h.
+- **Venue presets.** Startup Branch ships its real floor plan, 8 zones, a stage install plan (two cameras, one scribe, the
+  attendee QR on the front screen), a printable install sheet and the event's own info for the assistants.
 
 ## Surfaces
 
-- **Dashboard** (`/e/:eventId/…`, organizer login): Dashboard (issue tracker), Map, Radio, Assistant, AI crew, Database
-  (live tables + CSV export), Devices, Reports, People, Settings (map, zones, teams, cameras, knowledge, invites).
-- **Staff app** (`/staff`, QR + a name, no account): two tabs — **Chat** (the assistant; attach photos or a short video and it
-  files a tracked report with a live receipt) and **Radio** (push-to-talk). New assignments arrive as swipe cards: right to take,
-  left to pass. The task you're on stays pinned; slide to finish.
-- **Devices** (QR, no login): camera `/device/:id`, meeting scribe `/scribe/:id`. Preset venues come with an install plan
-  (Startup Branch: two stage cameras, one stage-desk scribe, the attendee QR on the front screen) and a printable sheet.
-- **Attendees** (QR poster or the front screen): `/chat`. Staff, camera and scribe links carry an organizer join key;
-  the attendee code alone can only join as an attendee.
+| Who | Where | What |
+| --- | --- | --- |
+| Organizer | `/e/:eventId/…` (login) | Dashboard (issue tracker), Map, Radio, Assistant, AI crew, Database (live tables + CSV), Devices, Reports, People, Settings |
+| Staff | `/staff` (QR + a name) | **Chat** (assistant; attach photos or video) and **Radio** (push-to-talk). New tasks arrive as swipe cards: right to take, left to pass |
+| Devices | `/device/:id`, `/scribe/:id` (QR) | A camera that reads its zones every few seconds; a scribe that transcribes the table |
+| Attendees | `/chat` (poster or front screen) | Ask anything in Korean or English; requests become tracked tickets |
 
 ## Stack
 
@@ -65,10 +79,12 @@ npm run dev                 # API on :8080, web on :5173
 node scripts/seed-venue.mjs http://localhost:8080   # optional demo venue (accounts saved to data/demo-credentials.json)
 ```
 
-Checks: `npm run typecheck`, `npm test`, `bash scripts/verify-all.sh` (build + unit tests + every smoke suite against a fresh
-local server; needs `OPENAI_API_KEY` in the environment).
+Checks: `npm run typecheck`, `npm test`, `bash scripts/verify-all.sh` — build + unit tests + every smoke suite against a
+fresh local server with the real models (needs `OPENAI_API_KEY`).
 
 ## Deploy
 
 `node scripts/deploy.mjs` — typecheck, build, `fly deploy --ha=false`, then waits for the new release to report healthy.
-Secrets live in Fly (`fly secrets set OPENAI_API_KEY=…`); nothing secret is committed.
+Secrets live in Fly (`fly secrets set OPENAI_API_KEY=… EVENT_WIFI_PASSWORD=…`); nothing secret is committed.
+
+<p align="center"><sub>WAYVE · made at c0mpiled-17: Seoul</sub></p>

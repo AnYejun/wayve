@@ -1,4 +1,4 @@
-// Seeds the live demo on the user's real venue: "SKKU Hackathon 2026" at Startup Branch (8 zones), through the real APIs.
+// Seeds the live demo on the user's real venue: "c0mpiled-17: Seoul" at COEX Startup Branch (8 zones), through the real APIs.
 // Usage: node scripts/seed-venue.mjs [baseUrl]
 // Demo accounts get random passwords stored ONLY in data/demo-credentials.json (key "venue") — never printed.
 import fs from 'node:fs';
@@ -34,7 +34,7 @@ async function account(j, key, displayName) {
 // ── 1. Organizer + event ─────────────────────────────────────────────────────────────────────────────────────────────
 const org = jar();
 await account(org, 'organizer', 'Yejun');
-const ev = warn(await call(org, 'POST', '/api/events', { name: 'SKKU Hackathon 2026', templateId: 'demo' }), 'create event').json.event;
+const ev = warn(await call(org, 'POST', '/api/events', { name: 'c0mpiled-17: Seoul', templateId: 'demo' }), 'create event').json.event;
 console.log(`event ${ev.id} · join code ${ev.joinCode}`);
 venue.eventId = ev.id;
 venue.joinCode = ev.joinCode;
@@ -69,19 +69,16 @@ for (const name of ['HQ', 'Registration', 'Stage', 'Hospitality', 'Safety']) {
 snap = (await call(org, 'GET', `/api/events/${ev.id}/snapshot`)).json;
 const team = Object.fromEntries(snap.teams.map((t) => [t.name, t.id]));
 
-warn(await call(org, 'PUT', `/api/events/${ev.id}/knowledge`, { text: `SKKU Hackathon 2026 · Startup Branch, ground floor — run of show (KST)
-09:00  Doors open. Check-in at the Entrance (08): badges, lanyards, T-shirts. Registration team.
-10:00  Opening ceremony on the Stage (02). Audience in Tiered Seating (01).
-10:30  Hacking starts. Teams 1–20 in Lounge A (03), 21–40 in Lounge B (04), 41–60 in Lounge C (05).
-10:30–17:00  Coffee Corner (07) open. Refill cups and milk every hour.
-12:00  Lunch boxes handed out in the Entrance Lounge (06).
-14:00 and 16:00  Mentor rounds: mentors walk Lounges A → B → C, 20 minutes each.
-18:00  Demo round one on the Stage; round two at 19:30. Judges sit in row 1 of Tiered Seating.
-20:30  Awards on the Stage, then clean-up.
-Wi-Fi: "StartupBranch-Guest" — password at the Registration desk.
-First aid kit: Registration desk at the Entrance. AED next to the Coffee Corner.
-Emergency: call 119 first, then radio HQ. Evacuation route: Walkway → Entrance (08).
-Lost & found, power strips and extension cords: Registration desk.` }), 'knowledge');
+warn(await call(org, 'PUT', `/api/events/${ev.id}/knowledge`, { text: `c0mpiled-17: Seoul · COEX Startup Branch 2F — run of show (KST)
+09:00–09:40  Check-in and networking at the Entrance (Luma ticket QR at the door).
+09:40–10:00  Opening and congratulatory remarks on the Stage. Audience in Tiered Seating.
+10:00–15:00  Build session (5 hours). Lunch is brought to the venue during the session.
+15:00  Submission deadline: demo video (2 minutes or less) + GitHub repository URL.
+15:00–17:00  Judging, optional live demos, awards.
+17:00–19:00  Dinner, drinks and networking.
+Wi-Fi: networks c0mpiled-1 to c0mpiled-20 — connect to the nearest router (password on the Luma announcement).
+Power strips are limited — share outlets. Seating is limited — the stairs (Tiered Seating) are open to work on.
+Emergency: call 119 first, then radio HQ.` }), 'knowledge');
 
 // ── 4. Staff (accounts, teams, locations) ───────────────────────────────────────────────────────────────────────────
 const people = [

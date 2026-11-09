@@ -1,4 +1,4 @@
-// Seeds a realistic demo event "SKKU Hackathon 2026" on a running WAYVE server (real models do the extraction).
+// Seeds a realistic demo event "Demo Hackathon" on a running WAYVE server (real models do the extraction).
 // Usage: node scripts/seed-hackathon.mjs [baseUrl]
 // Demo accounts are created with random passwords written to data/demo-credentials.json (gitignored) — never printed.
 import fs from 'node:fs';
@@ -33,7 +33,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const org = jar();
 await account(org, `organizer-${suffix}`, 'Yejun');
-const ev = (await call(org, 'POST', '/api/events', { name: 'SKKU Hackathon 2026', templateId: 'demo' })).json.event;
+const ev = (await call(org, 'POST', '/api/events', { name: 'Demo Hackathon', templateId: 'demo' })).json.event;
 console.log('event', ev.id, ev.joinCode);
 
 // Real venue map: the floor plan + zones that match its rooms exactly (1600×1000 px space).
@@ -50,7 +50,7 @@ const zr = await call(org, 'PUT', `/api/events/${ev.id}/zones`, { zones });
 const zid = Object.fromEntries((zr.json?.zones ?? []).map((z) => [z.name, z.id]));
 console.log('zones', Object.keys(zid).length);
 
-await call(org, 'PUT', `/api/events/${ev.id}/knowledge`, { text: `SKKU Hackathon 2026 — run of show (all times KST)
+await call(org, 'PUT', `/api/events/${ev.id}/knowledge`, { text: `Demo Hackathon — run of show (sample data, all times KST)
 09:30 Doors open · Registration desk at the Main Entrance side (badges + T-shirts)
 10:30 Opening keynote — Main Stage
 12:00 Lunch — Food & Drinks (vegetarian option at the left counter)
@@ -59,7 +59,7 @@ await call(org, 'PUT', `/api/events/${ev.id}/knowledge`, { text: `SKKU Hackathon
 18:30 Dinner — Food & Drinks
 19:00 Demo submissions close
 20:00 Final demos — Main Stage
-Wi-Fi: SKKU-Hack / ask Registration for the password. First aid kit: Registration desk. Emergency: call 119, then radio HQ.
+Wi-Fi: Demo-Guest / ask Registration for the password. First aid kit: Registration desk. Emergency: call 119, then radio HQ.
 Lost & found: Registration. Power strips: ask the Stage team.` });
 
 const snap = (await call(org, 'GET', `/api/events/${ev.id}/snapshot`)).json;
