@@ -174,6 +174,10 @@ export function secretaryNote(deviceId: string, counts: { tasks: number; decisio
 // ── 2. Dispatcher + 3. watch & verify (every 30 s) ──────────────────────────────────────────────────────────────────
 const lastDispatch = new Map<string, number>();
 const DISPATCH_GAP_MS = 5 * 60_000;
+/** An unowned issue waits this long (so speech like "Jimin, take this" can assign it first) before the dispatcher acts. */
+const DISPATCH_AFTER_MS = Number(process.env.DISPATCH_AFTER_MS) > 0 ? Number(process.env.DISPATCH_AFTER_MS) : 12_000;
+/** How often the crew loop runs (dispatch + watch & verify). */
+const CREW_TICK_MS = Number(process.env.CREW_TICK_MS) > 0 ? Number(process.env.CREW_TICK_MS) : 4_000;
 
 type Cand = ParticipantRow & { zoneId: string | null; seen: number; busy: number; load: number };
 
@@ -181,7 +185,7 @@ function dispatchTick(now: number) {
   const dispatchers = q.all<AgentRow>(`SELECT * FROM agents WHERE role = 'dispatcher' AND active = 1 AND deleted_at IS NULL`);
   for (const a of dispatchers) {
     const open = q.all<IssueRow>(`SELECT * FROM issues WHERE event_id = ? AND status = 'open' AND assignee_id IS NULL AND kind IN ('task','problem') AND created_at <= ? ORDER BY priority, created_at LIMIT 6`,
-      a.event_id, now - 60_000);
+      a.event_id, now - DISPATCH_AFTER_MS);
     let acted = 0;
     for (const issue of open) {
       if (acted >= 2) break;
@@ -257,7 +261,7 @@ export function startCrew() {
     const now = Date.now();
     try { dispatchTick(now); } catch (e) { log.warn('crew.dispatch_failed', { err: (e as Error).message }); }
     try { verifyTick(now); } catch (e) { log.warn('crew.verify_failed', { err: (e as Error).message }); }
-  }, 30_000);
+  }, CREW_TICK_MS);
   t.unref?.();
 }
 

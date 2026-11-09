@@ -347,6 +347,8 @@ export interface ExtractInput {
   issues: Array<{ number: number; title: string; status: string; assignee: string; team: string | null; due: string | null }>;
   lines: Array<{ ref: string; speaker: string; source: string; isNew: boolean; text: string; time: string }>;
   channelTeam: string | null;
+  /** Zone names of the venue map (so speech like "near the entrance" lands on the right zone). */
+  zones?: string[];
   /** Persona instructions of the agent bound to this scribe (AI crew), if any. */
   persona?: string | null;
 }
@@ -358,7 +360,7 @@ const ACTION_SCHEMA = {
       type: 'array',
       items: {
         type: 'object', additionalProperties: false,
-        required: ['type', 'issue_number', 'title', 'kind', 'priority', 'team', 'assignee', 'due', 'status', 'note', 'evidence', 'confidence'],
+        required: ['type', 'issue_number', 'title', 'kind', 'priority', 'team', 'zone', 'assignee', 'due', 'status', 'note', 'evidence', 'confidence'],
         properties: {
           type: { type: 'string', enum: ['create', 'update', 'decision'] },
           issue_number: { type: ['integer', 'null'], description: 'for update: the WV number of an existing issue' },
@@ -366,6 +368,7 @@ const ACTION_SCHEMA = {
           kind: { type: ['string', 'null'], enum: ['task', 'problem', 'question', null] },
           priority: { type: ['string', 'null'], enum: ['p0', 'p1', 'p2', 'p3', null] },
           team: { type: ['string', 'null'], description: 'team name exactly from the list, or null' },
+          zone: { type: ['string', 'null'], description: 'where it is happening: a zone name copied exactly from the zone list when the lines name or clearly imply a place ("near the entrance" → "Entrance"), else null' },
           assignee: { type: ['string', 'null'], description: 'person name exactly as in the people list when they match; otherwise the bare name heard (no Korean 아/야/씨/님 endings); null if nobody' },
           due: { type: ['string', 'null'], description: '"HH:MM" 24h if a time was stated, else null' },
           status: { type: ['string', 'null'], enum: ['open', 'in_progress', 'blocked', 'done', null] },
@@ -381,7 +384,7 @@ const ACTION_SCHEMA = {
 const ActionZ = z.object({
   actions: z.array(z.object({
     type: z.enum(['create', 'update', 'decision']), issue_number: z.number().int().nullable(), title: z.string().nullable(),
-    kind: z.enum(['task', 'problem', 'question']).nullable(), priority: z.enum(['p0', 'p1', 'p2', 'p3']).nullable(), team: z.string().nullable(),
+    kind: z.enum(['task', 'problem', 'question']).nullable(), priority: z.enum(['p0', 'p1', 'p2', 'p3']).nullable(), team: z.string().nullable(), zone: z.string().nullable(),
     assignee: z.string().nullable(), due: z.string().nullable(), status: z.enum(['open', 'in_progress', 'blocked', 'done']).nullable(),
     note: z.string().nullable(), evidence: z.array(z.string()), confidence: z.number(),
   })).max(8),
@@ -394,6 +397,7 @@ export async function extractActions(inp: ExtractInput): Promise<{ actions: Arra
     `This channel's team: ${inp.channelTeam ?? 'none'}`,
     ...(inp.persona ? [`Listener persona (set by the organizers): ${inp.persona.slice(0, 600)}`] : []),
     `Teams: ${inp.teams.join(', ') || 'none'}`,
+    `Zones: ${(inp.zones ?? []).join(', ') || 'none'}`,
     `People: ${inp.people.map((p) => `${p.name}${p.team ? ` (${p.team})` : ''}`).join(', ') || 'none'}`,
     'Open / recent issues:',
     ...(inp.issues.length ? inp.issues.map((i) => `- WV-${i.number} [${i.status}] ${i.title} · owner ${i.assignee}${i.team ? ` · ${i.team}` : ''}${i.due ? ` · due ${i.due}` : ''}`) : ['- none']),
@@ -422,7 +426,7 @@ Only act on what the NEW lines explicitly say; older lines are context. Most lin
   return {
     model,
     actions: parsed.data.actions.map((a) => ({
-      type: a.type, issueNumber: a.issue_number, title: a.title?.slice(0, 80) ?? null, kind: a.kind, priority: a.priority, team: a.team,
+      type: a.type, issueNumber: a.issue_number, title: a.title?.slice(0, 80) ?? null, kind: a.kind, priority: a.priority, team: a.team, zone: a.zone?.slice(0, 60) ?? null,
       assignee: a.assignee?.slice(0, 30) ?? null, due: a.due, status: a.status, note: a.note?.slice(0, 200) ?? null,
       evidence: a.evidence.slice(0, 6), confidence: clamp01(a.confidence),
     })),

@@ -20,6 +20,7 @@ import { AnyPulseDot } from './live/pulse';
 import { SECTIONS, ShellContext, sectionPath, type Section } from './context';
 import { AskDrawer } from '@/components/chat/AskDrawer';
 import { TopBar } from './TopBar';
+import { InviteQuick } from './InviteQuick';
 
 const views: Record<Section, ReturnType<typeof lazy>> = {
   dashboard: lazy(() => import('./sections/Dashboard')),
@@ -113,6 +114,7 @@ export default function AppShell() {
           <div className="flex h-14 items-center px-5"><Link to="/" aria-label="Home"><Logo size={18} /></Link></div>
           <div className="px-3 pb-2">
             {live.snap ? <EventSwitcher eventId={eventId} name={live.snap.event.name} code={live.snap.event.joinCode} /> : <div className="h-12 rounded-[10px] bg-wash-2" />}
+            {live.snap && live.snap.me.role === 'admin' ? <div className="mt-2"><InviteQuick joinCode={live.snap.event.joinCode} /></div> : null}
           </div>
           <nav className="flex-1 overflow-y-auto px-3 pb-3" aria-label="Sections">
             {NAV.map((g) => (

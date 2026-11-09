@@ -2,7 +2,8 @@
 // and where it is on the map. Calibrate cameras in place; add devices by QR.
 import { useMemo, useState } from 'react';
 import { motion } from 'motion/react';
-import { Cable, Camera, Crosshair, Mic, Plus, Smartphone, TriangleAlert } from 'lucide-react';
+import { Cable, Camera, Crosshair, MapPinned, Mic, Plus, Smartphone, TriangleAlert } from 'lucide-react';
+import { InstallPlan } from '@/components/install/InstallPlan';
 import { QRCodeSVG } from 'qrcode.react';
 import type { Device, Snapshot } from '@shared/contracts';
 import { VenueMap } from '@/components/VenueMap';
@@ -25,9 +26,10 @@ const GROUPS: Array<{ type: Device['deviceType']; title: string; icon: typeof Ca
 ];
 
 export default function DevicesSection() {
-  const { snap } = useShell();
+  const { snap, eventId } = useShell();
   const now = useNow(1000);
   const [selected, setSelected] = useState<string | null>(null);
+  const [plan, setPlan] = useState(false);
   const [calibrate, setCalibrate] = useState(false);
   const [adding, setAdding] = useState(false);
 
@@ -45,6 +47,7 @@ export default function DevicesSection() {
       <SectionHeader title="Devices" sub="Every phone feeding the live database — where it is, what it watches, and whether it’s still talking to us."
         actions={
           <>
+            <Button variant="outline" size="sm" onClick={() => setPlan(true)}><MapPinned />Install plan</Button>
             <Button variant="outline" size="sm" onClick={() => setCalibrate(true)}><Crosshair />Calibrate cameras</Button>
             <Button size="sm" onClick={() => setAdding(true)}><Plus />Add a device</Button>
           </>
@@ -88,6 +91,12 @@ export default function DevicesSection() {
         </div>
       </div>
 
+      <Sheet open={plan} onOpenChange={setPlan}>
+        <SheetContent side="right" className="w-full gap-0 overflow-y-auto p-6 sm:max-w-[1100px]">
+          <SheetHeader className="mb-4 p-0"><SheetTitle>Install plan</SheetTitle><SheetDescription>Where each camera and scribe goes. Scan a spot’s QR with the phone you mount there — it sets itself up, no account.</SheetDescription></SheetHeader>
+          <InstallPlan snap={snap} eventId={eventId} />
+        </SheetContent>
+      </Sheet>
       <Sheet open={calibrate} onOpenChange={setCalibrate}>
         <SheetContent side="right" className="w-full gap-0 overflow-y-auto p-6 sm:max-w-[760px]">
           <SheetHeader className="mb-4 p-0"><SheetTitle>Calibrate cameras</SheetTitle><SheetDescription>Draw the zones a camera sees once — every frame is then read zone by zone.</SheetDescription></SheetHeader>

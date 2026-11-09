@@ -117,15 +117,15 @@ function Proposals({ snap, now, apply, onOpenIssue }: { snap: Snapshot; now: num
   const decided = snap.proposals.filter((p) => p.status !== 'pending').sort((a, b) => (b.decidedAt ?? 0) - (a.decidedAt ?? 0));
   const fresh = useFreshIds(pending);
 
+  // Optimistic: the suggestion leaves the inbox at once; the server's answer (and any issue it touched) follows.
   const decide = async (p: Proposal, d: 'accept' | 'reject') => {
-    setBusy(p.id);
+    apply({ kind: 'proposal', data: { ...p, status: d === 'accept' ? 'accepted' : 'rejected', decidedAt: Date.now() } });
     try {
       const r = await API.decideProposal(p.id, d);
       apply({ kind: 'proposal', data: r.proposal });
       if (r.issue) apply({ kind: 'issue', data: r.issue });
       toast.success(d === 'accept' ? (r.issue ? `${r.issue.key} applied` : 'Applied') : 'Rejected');
-    } catch (e) { toast.error((e as HttpError).message); }
-    setBusy(null);
+    } catch (e) { apply({ kind: 'proposal', data: p }); toast.error((e as HttpError).message); }
   };
 
   return (

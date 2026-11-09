@@ -55,11 +55,14 @@ function Body({ snap, issue: i, apply, now }: { snap: Snapshot; issue: Issue; ap
   const assignee = i.assigneeId ? snap.participants.find((p) => p.id === i.assigneeId) : null;
   const team = i.teamId ? snap.teams.find((t) => t.id === i.teamId) : null;
 
+  // Optimistic: the sheet and the board change at once; the server answer replaces it; a failure puts it back.
+  // (Local copies carry version + 1 so the live reducer accepts both the optimistic copy and the revert.)
   const patch = async (b: Parameters<typeof API.patchIssue>[1]) => {
-    setBusy(true);
-    try { const r = await API.patchIssue(i.id, b); apply({ kind: 'issue', data: r.issue }); }
-    catch (e) { toast.error((e as HttpError).message); }
-    setBusy(false);
+    const before = i;
+    const changes = Object.fromEntries(Object.entries(b).filter(([, v]) => v !== undefined)) as Partial<Issue>;
+    apply({ kind: 'issue', data: { ...before, ...changes, version: before.version + 1, updatedAt: Date.now() } });
+    try { const r = await API.patchIssue(before.id, b); apply({ kind: 'issue', data: r.issue }); }
+    catch (e) { apply({ kind: 'issue', data: { ...before, version: before.version + 1 } }); toast.error('Couldn’t save', { description: (e as HttpError).message }); }
   };
 
   return (

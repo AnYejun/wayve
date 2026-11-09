@@ -543,18 +543,20 @@ export function VenueMap(props: VenueMapProps) {
             const r = fs(isCam || isScribe ? 9 : 5);
             const Icon = isCam ? Camera : Mic;
             return (
-              <g key={`dev-${d.id}`} style={{ cursor: devicesEditable ? 'grab' : 'pointer' }}
+              <motion.g key={`dev-${d.id}`} style={{ cursor: devicesEditable ? 'grab' : 'pointer' }} initial={false}
+                animate={{ x: pos[0], y: pos[1] }} transition={devicesEditable || reduced ? { duration: 0 } : spring.smooth}
                 onPointerDown={(e) => onDeviceDown(e, d, pos)} onPointerEnter={() => setHoverDev(d.id)} onPointerLeave={() => setHoverDev((h) => (h === d.id ? null : h))}>
+                {/* drawn at the origin; the group glides to the device's spot (people moving between zones animate) */}
                 {receiving && !reduced ? (
-                  <motion.circle cx={pos[0]} cy={pos[1]} r={r} fill="#58a069" initial={{ opacity: 0.35, scale: 1 }} animate={{ opacity: 0, scale: 2.2 }}
+                  <motion.circle cx={0} cy={0} r={r} fill="#58a069" initial={{ opacity: 0.35, scale: 1 }} animate={{ opacity: 0, scale: 2.2 }}
                     transition={{ duration: 1.4, repeat: Infinity, ease: 'easeOut' }} style={{ transformBox: 'fill-box', transformOrigin: 'center' }} />
                 ) : null}
-                <MarkerRipple deviceId={d.id} cx={pos[0]} cy={pos[1]} r={r} />
-                <circle cx={pos[0]} cy={pos[1]} r={r} fill={isCam || isScribe ? '#fff' : online ? '#17150f' : '#b9b8b4'}
+                <MarkerRipple deviceId={d.id} cx={0} cy={0} r={r} />
+                <circle cx={0} cy={0} r={r} fill={isCam || isScribe ? '#fff' : online ? '#17150f' : '#b9b8b4'}
                   stroke={online ? '#17150f' : '#b9b8b4'} strokeWidth={fs(1.5)} strokeDasharray={online ? undefined : `${fs(2)} ${fs(2)}`} />
-                {isCam || isScribe ? <Icon x={pos[0] - fs(5.5)} y={pos[1] - fs(5.5)} width={fs(11)} height={fs(11)} strokeWidth={2.2} color={online ? '#17150f' : '#a3a29f'} /> : null}
-                {online && (isCam || isScribe) ? <circle cx={pos[0] + r * 0.72} cy={pos[1] - r * 0.72} r={fs(2.6)} fill="#58a069" stroke="#fff" strokeWidth={fs(1)} /> : null}
-              </g>
+                {isCam || isScribe ? <Icon x={-fs(5.5)} y={-fs(5.5)} width={fs(11)} height={fs(11)} strokeWidth={2.2} color={online ? '#17150f' : '#a3a29f'} /> : null}
+                {online && (isCam || isScribe) ? <circle cx={r * 0.72} cy={-r * 0.72} r={fs(2.6)} fill="#58a069" stroke="#fff" strokeWidth={fs(1)} /> : null}
+              </motion.g>
             );
           })}
         </g>

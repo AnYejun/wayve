@@ -119,14 +119,24 @@ function Radio({ snap, eventId, apply }: { snap: Snapshot; eventId: string; appl
     return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); };
   }, [rec]);
 
+  // Optimistic send: the bubble appears instantly ("Sending…"), the composer clears, the server's message replaces it.
+  const [pending, setPending] = useState<Array<{ id: string; text: string; to: string; label: string; state: 'sending' | 'failed' }>>([]);
+  const pushText = async (t: string, to: string, label: string, reuseId?: string) => {
+    const id = reuseId ?? `tmp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+    setPending((p) => (reuseId ? p.map((x) => (x.id === id ? { ...x, state: 'sending' } : x)) : [...p, { id, text: t, to, label, state: 'sending' }]));
+    try {
+      delivered(await api<{ message: TalkMessage; utterance: Utterance }>('/api/talk/text', { body: { text: t, to, eventId } }));
+      setPending((p) => p.filter((x) => x.id !== id));
+    } catch (e) {
+      setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'failed' } : x)));
+      failed(e);
+    }
+  };
   const sendText = async () => {
     const t = text.trim();
-    if (!t || sending) return;
-    setSending(true);
-    try {
-      delivered(await api<{ message: TalkMessage; utterance: Utterance }>('/api/talk/text', { body: { text: t, to: channel.to, eventId } }));
-      setText('');
-    } catch (e) { failed(e); } finally { setSending(false); }
+    if (!t) return;
+    setText('');
+    await pushText(t, channel.to, channel.label);
   };
   const ack = async (m: TalkMessage) => {
     apply({ kind: 'message', data: { ...m, acks: [...m.acks, { participantId: me.participantId, at: Date.now() }] } });
@@ -237,7 +247,7 @@ function Radio({ snap, eventId, apply }: { snap: Snapshot; eventId: string; appl
         </header>
 
         <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
-          {list.length === 0 ? (
+          {list.length === 0 && pending.length === 0 ? (
             <div className="grid h-full place-items-center px-6">
               <div className="max-w-[360px] text-center">
                 <span className="mx-auto grid size-12 place-items-center rounded-[14px] bg-white text-fg-2 shadow-[inset_0_0_0_.5px_rgb(23_21_15/.14)]"><RadioIcon size={22} strokeWidth={1.75} /></span>
@@ -251,6 +261,16 @@ function Radio({ snap, eventId, apply }: { snap: Snapshot; eventId: string; appl
                 {list.map((m) => (
                   <MessageRow key={m.id} m={m} me={me} snap={snap} now={now} player={player} onAck={ack} showTarget={channel.key === 'all-traffic'}
                     focused={focusId === m.id} myTeamId={myTeamId} />
+                ))}
+                {pending.map((p) => (
+                  <motion.li key={p.id} layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                    className="ml-auto max-w-[78%] rounded-[16px] bg-[#17150f] px-3.5 py-2.5 text-white">
+                    <div className="text-[11.5px] font-medium text-white/60">You → {p.label}</div>
+                    <p className="mt-0.5 text-[15px] leading-[21px]">{p.text}</p>
+                    {p.state === 'sending'
+                      ? <div className="mt-1 flex items-center gap-1.5 text-[12px] text-white/60"><span className="size-3 animate-spin rounded-full border-[1.5px] border-white/25 border-t-white/80" />Sending…</div>
+                      : <button type="button" onClick={() => void pushText(p.text, p.to, p.label, p.id)} className="mt-1 text-[12px] font-semibold text-[#ffb4a8]">Couldn’t send · Retry</button>}
+                  </motion.li>
                 ))}
               </AnimatePresence>
             </ol>

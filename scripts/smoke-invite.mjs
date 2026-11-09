@@ -52,7 +52,7 @@ r = await call(org, 'GET', `/api/events/${ev.id}/members`);
 const mina = r.json.members.find((m) => m.displayName === 'Mina');
 ok(mina && mina.teamName === team.name && mina.username === `mina-${sfx}`, 'members list shows Mina in her team');
 r = await call(org, 'GET', `/api/events/${ev.id}/invites`);
-ok(r.json.invites[0].uses === 1, 'uses counted once');
+ok(r.json.invites[0].uses === 2, `uses counted once per person (Noa + Mina → ${r.json.invites[0].uses})`);
 
 // join-by-code
 const code = jar();
@@ -61,6 +61,13 @@ r = await call(code, 'POST', '/api/events/join-by-code', { code: ev.joinCode.toL
 ok(r.status === 200 && r.json.role === 'staff', 'join by code (lowercase ok)');
 r = await call(code, 'POST', '/api/events/join-by-code', { code: 'ZZZZZZ', as: 'staff' });
 ok(r.status === 404, `unknown code → 404 (${r.status})`);
+const codeGuest = jar();
+r = await call(codeGuest, 'POST', '/api/events/join-by-code', { code: ev.joinCode, as: 'staff' });
+ok(r.status === 400 && r.json.error.code === 'NEEDS_NAME', 'signed-out code join asks for a name');
+r = await call(codeGuest, 'POST', '/api/events/join-by-code', { code: ev.joinCode, as: 'staff', name: 'Kai' });
+ok(r.status === 200 && r.json.role === 'staff', 'join by code with just a name (no account)');
+r = await call(codeGuest, 'GET', `/api/events/${ev.id}/snapshot`);
+ok(r.status === 200 && r.json.me.displayName === 'Kai', 'name-only code join opens the event');
 
 // add by username
 const ana = jar();
@@ -75,6 +82,10 @@ ok(r.status === 404, 'unknown username → 404');
 // permissions + revoke
 r = await call(guest, 'POST', `/api/events/${ev.id}/invites`, { role: 'admin' });
 ok(r.status === 403, 'staff cannot create invites');
+r = await call(org, 'POST', `/api/events/${ev.id}/invites`, { role: 'admin' });
+const orgToken = r.json.url.split('/i/')[1];
+r = await call(jar(), 'POST', `/api/invites/${orgToken}/accept`, { name: 'Eve' });
+ok(r.status === 409 && r.json.error.code === 'NEEDS_LOGIN', 'organizer invites still need an account');
 r = await call(org, 'DELETE', `/api/invites/${inviteId}`);
 ok(r.status === 200, 'revoke');
 const late = jar();

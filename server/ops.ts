@@ -14,7 +14,7 @@ import { q, tx } from './db.ts';
 import { log } from './log.ts';
 import { config } from './config.ts';
 import { eventChannel, publish } from './sse.ts';
-import { getEvent, newId, publishAll, type Frame, type ObservationRow, type ParticipantRow } from './world.ts';
+import { getEvent, newId, publishAll, type Frame, type ObservationRow, type ParticipantRow , listZoneRows } from './world.ts';
 
 // ── rows ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -449,6 +449,7 @@ async function extractAndApply(eventId: string, newIds: string[]) {
   const people = q.all<ParticipantRow>(`SELECT * FROM participants WHERE event_id = ? AND role IN ('staff','admin') ORDER BY created_at`, eventId);
   const open = q.all<IssueRow>(`SELECT * FROM issues WHERE event_id = ? AND (status != 'done' OR updated_at >= ?) ORDER BY updated_at DESC LIMIT 60`, eventId, Date.now() - 3600_000);
   const input: ExtractInput = {
+    zones: listZoneRows(eventId).map((z) => z.name),
     nowKst: fmtHHMM(Date.now()),
     teams: teams.map((t) => t.name),
     people: people.map((p) => ({ name: p.display_name, team: p.team_id ? teams.find((t) => t.id === p.team_id)?.name ?? null : null })),
@@ -484,6 +485,22 @@ async function extractAndApply(eventId: string, newIds: string[]) {
 
 export interface ModelAction extends ProposedAction { evidence: string[]; confidence: number }
 
+/** Deterministic zone match for a zone name the model gave ("Entrance", "the entrance area"). */
+export function resolveZone(eventId: string, name: string | null | undefined): { id: string; name: string } | null {
+  if (!name) return null;
+  const n = norm(name);
+  if (!n) return null;
+  const zones = listZoneRows(eventId);
+  const z = zones.find((x) => norm(x.name) === n) ?? zones.find((x) => { const zn = norm(x.name); return zn.length >= 3 && (n.includes(zn) || zn.includes(n)); });
+  return z ? { id: z.id, name: z.name } : null;
+}
+
+/** The latest camera observation of a zone (≤ 3 min): attached as corroborating evidence when speech opens an issue there. */
+function corroboratingFrame(zoneId: string, now: number): RefKey | null {
+  const o = q.get<{ id: string }>(`SELECT id FROM observations WHERE zone_id = ? AND modality = 'vision' AND observed_at >= ? ORDER BY observed_at DESC LIMIT 1`, zoneId, now - 180_000);
+  return o ? { type: 'observation', id: o.id } : null;
+}
+
 /** Rules: validate + resolve names, then auto-apply or file a proposal. Inside tx. */
 export function applyAction(eventId: string, a: ModelAction, evidence: RefKey[], confidence: number, speaker: ParticipantRow | null,
   source: UtteranceSource, channelTeamId: string | null, now = Date.now()): Frame[] {
@@ -501,9 +518,12 @@ export function applyAction(eventId: string, a: ModelAction, evidence: RefKey[],
       .find((i) => similar(i.title, title) >= 0.6);
     if (dupe) return changeIssue(dupe.id, {}, AI_ACTOR, evidence, confidence, now);
     if (!auto) return [fileProposal(eventId, a, evidence, confidence, null, `New ${ISSUE_KIND_LABEL[kind].toLowerCase()}: ${title}${a.assignee ? ` · ${a.assignee}` : ''}`, now)];
+    const zone = resolveZone(eventId, a.zone);
+    const cam = zone ? corroboratingFrame(zone.id, now) : null;
     return createIssue({
       eventId, title, kind, priority: a.priority ?? 'p2', teamId: team?.id ?? (person?.team_id ?? channelTeamId ?? null),
-      assigneeId: person?.id ?? null, assigneeHint: person ? null : (a.assignee ?? null), dueAt: due, actor: AI_ACTOR, evidence, confidence, now,
+      assigneeId: person?.id ?? null, assigneeHint: person ? null : (a.assignee ?? null), dueAt: due, zoneId: zone?.id ?? null,
+      actor: AI_ACTOR, evidence: cam ? [...evidence, cam] : evidence, confidence, now,
     }).frames;
   }
 
@@ -535,7 +555,7 @@ export function applyAction(eventId: string, a: ModelAction, evidence: RefKey[],
 
 function fileProposal(eventId: string, a: ModelAction, evidence: RefKey[], confidence: number, issueId: string | null, summary: string, now: number): Frame {
   const id = newId('pr');
-  const action: ProposedAction = { type: a.type, issueNumber: a.issueNumber, title: a.title, kind: a.kind, priority: a.priority, team: a.team, assignee: a.assignee, due: a.due, status: a.status, note: a.note };
+  const action: ProposedAction = { type: a.type, issueNumber: a.issueNumber, title: a.title, kind: a.kind, priority: a.priority, team: a.team, zone: a.zone ?? null, assignee: a.assignee, due: a.due, status: a.status, note: a.note };
   q.run(`INSERT INTO proposals (id, event_id, status, action_json, summary, confidence, evidence_json, issue_id, created_at) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?)`,
     id, eventId, JSON.stringify(action), summary.slice(0, 200), confidence, JSON.stringify(evidence), issueId, now);
   return ['proposal', toProposal(q.get<ProposalRow>('SELECT * FROM proposals WHERE id = ?', id)!)];
@@ -571,9 +591,12 @@ function applyActionAs(eventId: string, a: ModelAction, evidence: RefKey[], acto
   if (a.type === 'create' || a.type === 'decision') {
     const title = (a.title ?? '').trim();
     if (title.length < 2) return [];
+    const zone = resolveZone(eventId, a.zone);
+    const cam = zone ? corroboratingFrame(zone.id, now) : null;
     return createIssue({
       eventId, title, kind: a.type === 'decision' ? 'decision' : (a.kind ?? 'task'), priority: a.priority ?? 'p2', teamId: team?.id ?? person?.team_id ?? null,
-      assigneeId: person?.id ?? null, assigneeHint: person ? null : a.assignee, dueAt: due, actor, evidence, confidence: null, now,
+      assigneeId: person?.id ?? null, assigneeHint: person ? null : a.assignee, dueAt: due, zoneId: zone?.id ?? null,
+      actor, evidence: cam ? [...evidence, cam] : evidence, confidence: null, now,
     }).frames;
   }
   const target = a.issueNumber != null ? q.get<IssueRow>('SELECT * FROM issues WHERE event_id = ? AND number = ?', eventId, a.issueNumber) : undefined;

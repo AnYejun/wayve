@@ -495,6 +495,7 @@ export interface ProposedAction {
   kind: IssueKind | null;
   priority: Priority | null;
   team: string | null;          // team name as heard
+  zone?: string | null;         // zone name (venue map) the action is about
   assignee: string | null;      // person name as heard
   due: string | null;           // "HH:MM" (event local time, KST)
   status: IssueStatus | null;
