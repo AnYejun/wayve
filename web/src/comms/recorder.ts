@@ -34,6 +34,8 @@ export function micHelp(): string {
 
 const HOLD_MS = 450;
 const MIN_MS = 600;
+/** Meter level (0..1, RMS × 4) a clip must reach once to count as speech. Room hiss after noise suppression stays below. */
+const SILENT_PEAK = 0.04;
 
 export const fmtDur = (ms: number) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 
@@ -52,7 +54,7 @@ export function useRecorder({ maxMs = 60_000, onBlob, onDenied }: {
   const r = useRef({
     rec: null as MediaRecorder | null, stream: null as MediaStream | null, ctx: null as AudioContext | null,
     chunks: [] as Blob[], startedAt: 0, downAt: 0, startedByPress: false, raf: 0, timer: undefined as ReturnType<typeof setTimeout> | undefined,
-    starting: false, stopRequested: false, cancelled: false,
+    starting: false, stopRequested: false, cancelled: false, peak: 0, frames: 0,
   });
   const onBlobRef = useRef(onBlob);
   onBlobRef.current = onBlob;
@@ -85,7 +87,7 @@ export function useRecorder({ maxMs = 60_000, onBlob, onDenied }: {
     const s = r.current;
     if (s.rec || s.starting || stateRef.current === 'uploading') return;
     if (!recordingSupported()) { onDeniedRef.current("This browser can't record audio. Type instead."); return; }
-    s.starting = true; s.stopRequested = false; s.cancelled = false;
+    s.starting = true; s.stopRequested = false; s.cancelled = false; s.peak = 0; s.frames = 0;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
       s.stream = stream;
@@ -103,6 +105,12 @@ export function useRecorder({ maxMs = 60_000, onBlob, onDenied }: {
         cleanup();
         haptic(15);
         if (s.cancelled || dur < MIN_MS || blob.size < 1200) { s.cancelled = false; setState('idle'); setElapsed(0); return; }
+        // The meter ran and heard nothing above room hiss: don't send silence (speech models echo their prompt on it).
+        if (s.frames > 12 && s.peak > 0 && s.peak < SILENT_PEAK) {
+          setState('idle'); setElapsed(0);
+          onDeniedRef.current("Didn't hear anything. Hold the mic and speak.");
+          return;
+        }
         setState('uploading');
         try { await onBlobRef.current(blob, dur); } finally { setState('idle'); setElapsed(0); }
       };
@@ -119,7 +127,9 @@ export function useRecorder({ maxMs = 60_000, onBlob, onDenied }: {
           an.getByteTimeDomainData(buf);
           let sum = 0;
           for (const v of buf) { const x = (v - 128) / 128; sum += x * x; }
-          setLevel(Math.min(1, Math.sqrt(sum / buf.length) * 4));
+          const lv = Math.min(1, Math.sqrt(sum / buf.length) * 4);
+          s.frames += 1; if (lv > s.peak) s.peak = lv;
+          setLevel(lv);
           setElapsed(Date.now() - s.startedAt);
           s.raf = requestAnimationFrame(loop);
         };

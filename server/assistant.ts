@@ -15,7 +15,7 @@ import {
   type IssueRow, type ModelAction, type UtteranceRow,
 } from './ops.ts';
 import { toReport, type ReportRow } from './reports.ts';
-import { getEvent, listZoneRows, primaryDevice, publishAll, type DeviceRow, type Frame, type ParticipantRow , toZone } from './world.ts';
+import { getEvent, getKnowledge, listZoneRows, primaryDevice, publishAll, type DeviceRow, type Frame, type ParticipantRow , toZone } from './world.ts';
 
 const ago = (t: number | null, now: number) => {
   if (!t) return 'never';
@@ -33,9 +33,7 @@ function crewLines(eventId: string, now: number): string[] {
 }
 
 function knowledgeText(eventId: string): string {
-  try {
-    return q.get<{ knowledge: string | null }>('SELECT knowledge FROM events WHERE id = ?', eventId)?.knowledge?.trim() ?? '';
-  } catch { return ''; }
+  try { return getKnowledge(eventId).trim(); } catch { return ''; }
 }
 
 /** Read-only text view of everything happening at the event, from the asker's point of view. U-refs → utterances. */
@@ -143,7 +141,10 @@ function actionSummary(a: ModelAction, key: string | null): string {
   return `${key ?? (a.issueNumber != null ? `WV-${a.issueNumber}` : 'Issue')} ${parts.join(' · ') || 'updated'}`;
 }
 
-export async function assistantTurn(asker: ParticipantRow, inp: { text: string | null; audio: { mime: string; buf: Buffer } | null; speak: boolean }): Promise<AssistantTurn> {
+export async function assistantTurn(asker: ParticipantRow, inp: {
+  text: string | null; audio: { mime: string; buf: Buffer } | null; speak: boolean; images?: Array<{ mime: string; buf: Buffer }>;
+}): Promise<AssistantTurn> {
+  const images = (inp.images ?? []).slice(0, 4);
   const eventId = asker.event_id;
   let transcript: string | null = null;
   if (inp.audio) {
@@ -152,11 +153,11 @@ export async function assistantTurn(asker: ParticipantRow, inp: { text: string |
     const tr = await transcribe(inp.audio.buf, inp.audio.mime, vocab.slice(0, 40));
     transcript = tr.text.trim() || null;
   }
-  const said = (transcript ?? inp.text ?? '').trim();
+  const said = (transcript ?? inp.text ?? '').trim() || (images.length ? `(sent ${images.length === 1 ? 'a photo' : `${images.length} photos`})` : '');
   if (!said) return { transcript, answer: "I didn't catch that. Could you say it again?", model: '', citations: [], actions: [], speech: null, focus: { zoneIds: [], issueIds: [], deviceIds: [] } };
 
   const ctx = buildContext(asker, said);
-  const out = await assistantModel(said, asker.display_name, ctx.text, inp.speak);
+  const out = await assistantModel(said, asker.display_name, ctx.text, inp.speak, images);
 
   // Actions: record the words as an utterance (evidence), then let the rules apply each proposal.
   const actions: AssistantAction[] = [];

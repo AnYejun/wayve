@@ -9,7 +9,7 @@ await signup(admin, 'Organizer');
 const KO = process.argv.includes('--ko');
 const ev = (await call(admin, 'POST', '/api/events', { name: 'Voice check', templateId: 'conference' })).json.event;
 await signup(staff, 'Sam');
-const s = (await call(staff, 'POST', '/api/join', { code: ev.joinCode, as: 'staff' })).json;
+const s = (await call(staff, 'POST', '/api/join', { code: ev.joinCode, key: ev.joinKey, as: 'staff' })).json;
 const audio = fs.readFileSync(fileURLToPath(new URL(KO ? './fixtures/report.m4a' : './fixtures/report_en.m4a', import.meta.url)));
 const zones = (await call(admin, 'GET', `/api/events/${ev.id}/snapshot`)).json.zones;
 const hall = zones.find((z) => z.name === 'Main hall');

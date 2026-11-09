@@ -2,7 +2,7 @@
 // one per event this browser joined; the server stores only sha256(token). Role checks happen per route against the
 // participant for the route's event. The LLM never sees SQL: it returns structured proposals that server/rules.ts applies.
 import express, { type NextFunction, type Request, type Response } from 'express';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import {
   ZONE_TYPES, inferZoneType, type ZoneSeriesBatch,
@@ -30,7 +30,7 @@ import { agentFocus, conciergeInstructions } from './crew.ts';
 import { analyzeWholeFrame, handleRegionFrame } from './camera.ts';
 import { eventChannel, openStream } from './sse.ts';
 import {
-  addActivity, buildSnapshot, getKnowledge, getDeviceRow, getEvent, getIncidentRow, getTaskRow, getZoneRow, listZoneRows, newId,
+  addActivity, buildSnapshot, deviceFrameFilter, getKnowledge, joinKeyFor, getDeviceRow, getEvent, getIncidentRow, getTaskRow, getZoneRow, listZoneRows, newId,
   publishAll, toDevice, toEvent, toIncident, toMe, toParticipant, toTask, toZone,
   type DeviceRow, type EventRow, type Frame, type IncidentRow, type ParticipantRow, type TaskRow, type ZoneRow,
 } from './world.ts';
@@ -46,6 +46,9 @@ export const forbidden = (msg = "You don't have permission.") => new HttpErr(403
 export const notFound = (msg = 'Not found.') => new HttpErr(404, 'NOT_FOUND', msg);
 
 type H = (req: Request, res: Response) => Promise<unknown> | unknown;
+/** The caller's IP. On Fly, Fly-Client-IP is set by the edge proxy; elsewhere req.ip (trust proxy = 1 hop). */
+export const clientIp = (req: Request): string => (process.env.FLY_APP_NAME ? req.get('fly-client-ip') : undefined) || req.ip || 'unknown';
+
 export const h = (fn: H) => (req: Request, res: Response, next: NextFunction) => {
   Promise.resolve(fn(req, res)).catch(next);
 };
@@ -100,6 +103,16 @@ export function requireRole(req: Request, eventId: string, min: Role): Participa
   if (ROLE_RANK[p.role as Role] < ROLE_RANK[min]) throw forbidden(min === 'admin' ? 'Only organizers of this event can do that.' : 'Only staff can do that.');
   touchParticipant(p);
   return p;
+}
+
+/** Staff/camera/scribe joins need the organizer's join key (`k` in those links): the public attendee code alone is not enough.
+ *  A browser/account that already holds that role (or higher) in the event, e.g. a phone re-scanning, does not need it. */
+export function requireJoinKey(req: Request, ev: EventRow, role: Role, key: string | null | undefined) {
+  const want = joinKeyFor(ev);
+  if (key && key.length === want.length && timingSafeEqual(Buffer.from(key), Buffer.from(want))) return;
+  const p = participantFor(req, ev.id);
+  if (p && ROLE_RANK[p.role as Role] >= ROLE_RANK[role]) return;
+  throw new HttpErr(403, 'NEEDS_STAFF_LINK', 'This code is for attendees. Ask an organizer for the staff or device link.');
 }
 
 const lastTouch = new Map<string, number>();
@@ -312,7 +325,7 @@ export function apiRouter() {
       addActivity(id, 'system', `Created ${b.name} · ${tpl.zones.length} zones`, null, now);
       return { ev: getEvent(id)!, p };
     });
-    res.json({ event: toEvent(out.ev), me: toMe(out.p, null) });
+    res.json({ event: { ...toEvent(out.ev), joinKey: joinKeyFor(out.ev) }, me: toMe(out.p, null) });
   }));
 
   r.get('/join/:code', h((req, res) => {
@@ -323,7 +336,7 @@ export function apiRouter() {
 
   r.post('/join', json, h((req, res) => {
     const b = parse(z.object({
-      code: z.string().trim().min(4).max(12), as: z.enum(['camera', 'staff', 'attendee', 'scribe']),
+      code: z.string().trim().min(4).max(12), as: z.enum(['camera', 'staff', 'attendee', 'scribe']), key: z.string().trim().max(64).nullish(),
       zoneId: z.string().nullish(), name: z.string().trim().max(30).nullish(), teamId: z.string().nullish(), slot: z.string().max(40).nullish(),
     }), req.body);
     const ev = q.get<EventRow>('SELECT * FROM events WHERE join_code = ?', b.code.toUpperCase());
@@ -342,6 +355,7 @@ export function apiRouter() {
       if (tok) publishAll(ev.id, [['participant', toParticipant(p)]]);
       return res.json({ me: toMe(p, null), device: null });
     }
+    requireJoinKey(req, ev, b.as === 'staff' ? 'staff' : 'camera', b.key);
     const zone = b.zoneId ? getZoneRow(b.zoneId) : undefined;
     const zoneId = zone && zone.event_id === ev.id ? zone.id : null;
     const team = b.teamId ? listTeams(ev.id).find((t) => t.id === b.teamId) ?? null : null;
@@ -425,7 +439,8 @@ export function apiRouter() {
     const ev = getEvent(String(req.params.eventId));
     if (!ev) throw notFound('Event not found.');
     const p = requireRole(req, ev.id, 'camera');
-    openStream(req, res, eventChannel(ev.id), [{ event: 'snapshot', data: buildSnapshot(ev.id, toMe(p), aiInfo(), opsState(ev.id)) }]);
+    openStream(req, res, eventChannel(ev.id), [{ event: 'snapshot', data: buildSnapshot(ev.id, toMe(p), aiInfo(), opsState(ev.id)) }],
+      p.role === 'camera' ? deviceFrameFilter(p.id, ev.id) : undefined);
   }));
 
   r.get('/events/:eventId/admin-link', h((req, res) => {
@@ -784,7 +799,7 @@ export function apiRouter() {
       `Attendee's current location: ${myZone?.name ?? 'unknown'}`,
       'Current crowd level per zone (from staff cameras):',
       ...publicZones(ev.id).map((z) => `- ${z.name}: ${z.crowdLevel ? CROWD_LABEL[z.crowdLevel] : 'no data'}${z.peopleEstimate != null ? ` · ~${z.peopleEstimate} people` : ''} · last seen ${mins(z.lastObservedAt)}`),
-      ...(getKnowledge(ev.id) ? ['Event info from the organizers (answer from this when relevant):', getKnowledge(ev.id).slice(0, 4000)] : []),
+      ...(getKnowledge(ev.id) ? ['Event info from the organizers (answer from this when relevant):', getKnowledge(ev.id).slice(0, 9000)] : []),
       ...(conciergeInstructions(ev.id) ? [`Your persona (set by the organizers): ${conciergeInstructions(ev.id)!.slice(0, 600)}`] : []),
     ].join('\n');
     let out;

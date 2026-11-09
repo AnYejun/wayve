@@ -32,7 +32,7 @@ export function saveSnapshot(device: DeviceRow, buf: Buffer, mime: string): stri
 }
 
 export function saveRegions(device: DeviceRow, regions: CameraRegion[]): void {
-  q.run('UPDATE devices SET regions_json = ? WHERE id = ?', regions.length ? JSON.stringify(regions) : null, device.id);
+  q.run('UPDATE devices SET regions_json = ? WHERE id = ?', JSON.stringify(regions), device.id); // '[]' = explicit single-zone
   // A calibrated camera's own zone = the first region's zone (keeps the single-zone views sensible).
   if (regions[0]) q.run('UPDATE devices SET zone_id = ? WHERE id = ?', regions[0].zoneId, device.id);
   publishAll(device.event_id, [['device', toDevice(getDeviceRow(device.id)!)]]);

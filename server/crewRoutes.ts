@@ -69,7 +69,7 @@ export function crewRouter() {
     requireRole(req, a.event_id, 'admin');
     q.run('UPDATE agents SET deleted_at = ?, active = 0 WHERE id = ?', Date.now(), a.id);
     q.run('DELETE FROM agent_watches WHERE agent_id = ?', a.id);
-    publishAll(a.event_id, [['agent', toCrewAgent({ ...a, active: 0, deleted_at: Date.now() })]]);
+    publishAll(a.event_id, [['agent_removed', { id: a.id }]]);
     res.json({ ok: true });
   }));
 

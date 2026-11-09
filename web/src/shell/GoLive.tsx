@@ -10,6 +10,7 @@ import { serverNow } from '@/lib/live';
 import { isOnline } from '@/components/ops/util';
 import { spring } from '@/design/motion';
 import { cn } from '@/lib/utils';
+import { withKey } from '@/lib/links';
 import { useShell } from './context';
 import { panel } from './ui';
 
@@ -50,7 +51,7 @@ export function GoLive() {
       action: snap.zones.length ? 'View map' : 'Set up', run: () => go(snap.zones.length ? 'map' : 'settings?tab=map') },
     { key: 'staff', icon: Users, title: 'Invite staff', done: staff > 0,
       detail: staff ? `${staff} on the radio · QR + name, no account` : 'They join with a QR and a name',
-      action: 'Copy link', run: () => void copyLink(`${origin}/j/${code}?as=staff`, 'Staff') },
+      action: 'Copy link', run: () => void copyLink(withKey(`${origin}/j/${code}?as=staff`, snap.joinKey), 'Staff') },
     { key: 'devices', icon: Cable, title: 'Cameras & scribes', done: sensorsOnline > 0,
       detail: sensors.length ? `${sensorsOnline}/${sensors.length} live` : 'Scan a spot QR on each phone you mount',
       action: 'Install plan', run: () => go('devices?plan=1') },

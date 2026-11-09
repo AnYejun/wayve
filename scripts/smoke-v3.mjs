@@ -26,11 +26,11 @@ r = await call(admin, 'POST', '/api/events', { name: 'v3 test', templateId: 'con
 ok(r.status === 200, `create event ${r.status}`);
 const ev = r.json.event;
 r = await call(jimin, 'POST', '/api/auth/signup', { username: u('jimin'), password: 'password123', displayName: 'Jimin' });
-r = await call(jimin, 'POST', '/api/join', { code: ev.joinCode, as: 'staff' });
+r = await call(jimin, 'POST', '/api/join', { code: ev.joinCode, key: ev.joinKey, as: 'staff' });
 ok(r.status === 200, `jimin joined ${r.status} ${r.json?.error?.message ?? ''}`);
 const jMe = r.json.me;
 await call(minsu, 'POST', '/api/auth/signup', { username: u('minsu'), password: 'password123', displayName: 'Minsu' });
-r = await call(minsu, 'POST', '/api/join', { code: ev.joinCode, as: 'staff' });
+r = await call(minsu, 'POST', '/api/join', { code: ev.joinCode, key: ev.joinKey, as: 'staff' });
 let snap = (await call(admin, 'GET', `/api/events/${ev.id}/snapshot`)).json;
 const zones = snap.zones;
 const entrance = zones.find((z) => /lobby|entrance/i.test(z.name)) ?? zones[0];
@@ -83,7 +83,7 @@ ok(r.status === 200 && r.json.map.kind === 'schematic' && r.json.map.grid.cols =
 // ── camera regions ──
 snap = (await call(admin, 'GET', `/api/events/${ev.id}/snapshot`)).json;
 const z1 = snap.zones[0], z2 = snap.zones[1];
-r = await call(cam, 'POST', '/api/join', { code: ev.joinCode, as: 'camera', zoneId: z1.id });
+r = await call(cam, 'POST', '/api/join', { code: ev.joinCode, key: ev.joinKey, as: 'camera', zoneId: z1.id });
 const dev = r.json.device;
 r = await call(cam, 'POST', `/api/devices/${dev.id}/snapshot`, null, { data: fx('scene.jpg'), type: 'image/jpeg' });
 ok(r.status === 200 && r.json.snapshotUrl, 'camera snapshot stored');

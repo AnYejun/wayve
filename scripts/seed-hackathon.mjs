@@ -69,7 +69,7 @@ const staff = {};
 for (const [u, name, t, zone] of people) {
   const j = jar();
   await account(j, `${u}-${suffix}`, name);
-  const r = await call(j, 'POST', '/api/join', { code: ev.joinCode, as: 'staff', teamId: team[t] });
+  const r = await call(j, 'POST', '/api/join', { code: ev.joinCode, key: ev.joinKey, as: 'staff', teamId: team[t] });
   if (r.json?.device) await call(j, 'PATCH', `/api/devices/${r.json.device.id}`, { zoneId: zid[zone] });
   staff[name] = { j, me: r.json?.me };
 }

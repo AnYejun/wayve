@@ -26,6 +26,7 @@ const mapBody = express.raw({ type: imageTypes, limit: '10mb' });
 const snapBody = express.raw({ type: imageTypes, limit: '3mb' });
 const json8 = express.json({ limit: '8mb' });
 const json16 = express.json({ limit: '12mb' });
+const json24 = express.json({ limit: '24mb' }); // reports: up to 4 images (3 MB each, base64) + a voice note
 const json = express.json({ limit: '64kb' });
 
 const eventOr404 = (id: string) => { const ev = getEvent(id); if (!ev) throw notFound('Event not found.'); return ev; };
@@ -50,21 +51,28 @@ export function v3Router() {
   const r = express.Router();
 
   // ── field reports ─────────────────────────────────────────────────────────────────────────────────────────────────
-  r.post('/reports', json8, h(async (req, res) => {
+  r.post('/reports', json24, h(async (req, res) => {
     const b = parse(z.object({
-      eventId: z.string(), zoneId: z.string().nullish(), category: z.enum(REPORT_CATEGORIES), urgency: z.enum(URGENCIES),
-      text: z.string().trim().max(2000).nullish(), photo: z.string().nullish(), audio: z.string().nullish(), parentReportId: z.string().nullish(),
+      eventId: z.string(), zoneId: z.string().nullish(), hereZoneId: z.string().nullish(),
+      // 'auto' = chat attachment: the model picks category and urgency from the note and images.
+      category: z.union([z.enum(REPORT_CATEGORIES), z.literal('auto')]), urgency: z.union([z.enum(URGENCIES), z.literal('auto')]),
+      text: z.string().trim().max(2000).nullish(), photo: z.string().nullish(), photos: z.array(z.string()).max(4).nullish(),
+      audio: z.string().nullish(), parentReportId: z.string().nullish(),
     }), req.body);
     const p = requireRole(req, eventOr404(b.eventId).id, 'staff');
     rateLimit(`report:${p.id}`, 1200);
-    const photo = b.photo ? parseDataUrl(b.photo, 3 * 1024 * 1024) : null;
-    if (b.photo && (!photo || !imageTypes.includes(photo.mime))) throw bad('BAD_PHOTO', 'The photo must be a JPEG, PNG or WebP under 3 MB.');
+    const raw = [...(b.photo ? [b.photo] : []), ...(b.photos ?? [])].slice(0, 4);
+    const photos = raw.map((d) => {
+      const ph = parseDataUrl(d, 3 * 1024 * 1024);
+      if (!ph || !imageTypes.includes(ph.mime)) throw bad('BAD_PHOTO', 'Each photo must be a JPEG, PNG or WebP under 3 MB.');
+      return ph;
+    });
     const audio = b.audio ? parseDataUrl(b.audio, 8 * 1024 * 1024) : null;
     if (b.audio && (!audio || !/^(audio\/|video\/(mp4|webm))/.test(audio.mime))) throw bad('BAD_AUDIO', 'The voice note could not be read.');
-    if (!b.text?.trim() && !photo && !audio) throw bad('EMPTY', 'Add a photo, a voice note or a short description.');
+    if (!b.text?.trim() && !photos.length && !audio) throw bad('EMPTY', 'Add a photo, a voice note or a short description.');
     try {
       res.json(await createReport({
-        participant: p, zoneId: b.zoneId ?? null, category: b.category, urgency: b.urgency, text: b.text?.trim() || null, photo, audio,
+        participant: p, zoneId: b.zoneId ?? null, hereZoneId: b.hereZoneId ?? null, category: b.category, urgency: b.urgency, text: b.text?.trim() || null, photos, audio,
         parentReportId: b.parentReportId ?? null,
       }));
     } catch (e) { wrapErr(e); }
@@ -193,18 +201,24 @@ export function v3Router() {
   }));
 
   // ── staff assistant + TTS ─────────────────────────────────────────────────────────────────────────────────────────
-  r.post('/assistant/turn', json16, h(async (req, res) => {
+  r.post('/assistant/turn', json24, h(async (req, res) => {
     const b = parse(z.object({
       eventId: z.string(), text: z.string().trim().max(800).nullish(), audio: z.string().nullish(), speak: z.boolean().optional(),
+      images: z.array(z.string()).max(4).nullish(), // photos / video key frames attached in the chat (data URLs)
     }), req.body);
     const p = requireRole(req, eventOr404(b.eventId).id, 'staff');
     rateLimit(`assistant:${p.id}`, 1200);
     if (!aiInfo().enabled) throw aiErrToHttp(new AiError('AI_DISABLED', ''));
     const audio = b.audio ? parseDataUrl(b.audio, 8 * 1024 * 1024) : null;
     if (b.audio && !audio) throw bad('BAD_AUDIO', 'The voice clip could not be read.');
-    if (!b.text && !audio) throw bad('EMPTY', 'Ask something first.');
+    const images = (b.images ?? []).map((d) => {
+      const im = parseDataUrl(d, 3 * 1024 * 1024);
+      if (!im || !imageTypes.includes(im.mime)) throw bad('BAD_PHOTO', 'Each image must be a JPEG, PNG or WebP under 3 MB.');
+      return im;
+    });
+    if (!b.text && !audio && !images.length) throw bad('EMPTY', 'Ask something first.');
     try {
-      res.json(await assistantTurn(p, { text: b.text ?? null, audio, speak: !!b.speak }));
+      res.json(await assistantTurn(p, { text: b.text ?? null, audio, speak: !!b.speak, images }));
     } catch (e) { wrapErr(e); }
   }));
 

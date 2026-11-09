@@ -8,10 +8,11 @@ import {
 import { AiError, aiInfo, askOps, transcribe } from './ai.ts';
 import { q, tx } from './db.ts';
 import {
-  type Actor, changeIssue, fmtDue, opsTimeline, createIssue, decideProposal, getIssueRow, insertUtterance, isNoise, issueKey, listTeams,
+  type Actor, changeIssue, declineIssue, fmtDue, opsTimeline, createIssue, decideProposal, getIssueRow, insertUtterance, isNoise, issueKey, listTeams,
   queueExtraction, toIssue, toMessage, toTeam, toUtterance, undoIssueEvent, type IssueRow, type UtteranceRow,
 } from './ops.ts';
 import { resolveIncident } from './rules.ts';
+import { nudgeDispatch } from './crew.ts';
 import { emitPulse } from './pulse.ts';
 import {
   HttpErr, aiErrToHttp, bad, forbidden, h, markDeviceError, notFound, parse, participantFor, rateLimit, requireDevice, requireRole,
@@ -121,7 +122,7 @@ function askContext(eventId: string, question: string, teamId: string | null) {
     ...(picked.length ? [...refs].map(([r, u]) => `${r} [${hhmm(u.started_at)}] ${u.speaker}${u.team_id ? ` (${tname(u.team_id)})` : ''}: ${u.text}`) : ['- none']),
     'Unacknowledged radio:',
     ...(unacked.length ? unacked.map((m) => `- ${hhmm(m.created_at)} ${pname(m.from_id)} → ${m.to_label}: ${m.text}`) : ['- none']),
-    ...(getKnowledge(eventId) ? ['Organizer notes (run of show, FAQ, contacts):', getKnowledge(eventId).slice(0, 4000)] : []),
+    ...(getKnowledge(eventId) ? ['Organizer notes (run of show, FAQ, contacts):', getKnowledge(eventId).slice(0, 9000)] : []),
     ...(zones.length ? ['Zones:', ...zones.map((z) => `- ${z.name}: ${ZONE_STATUS_LABEL[z.current_status as 'clear']}${z.crowd_level ? ` (${CROWD_LABEL[z.crowd_level as 'low']})` : ''}`)] : []),
   ].join('\n');
   return { text, refs, issues };
@@ -279,6 +280,21 @@ export function opsRouter() {
       return f;
     });
     publishAll(cur.event_id, frames);
+    res.json({ issue: toIssue(getIssueRow(cur.id)!) });
+  }));
+
+  // Swipe left on an assignment: only the current assignee (or an admin) can pass. The dispatcher re-offers it to someone
+  // else within a few seconds and never back to whoever declined.
+  r.post('/issues/:issueId/decline', json, h((req, res) => {
+    const cur = getIssueRow(String(req.params.issueId));
+    if (!cur) throw notFound('Issue not found.');
+    const p = requireRole(req, cur.event_id, 'staff');
+    const b = parse(z.object({ reason: z.string().trim().max(200).nullish() }), req.body ?? {});
+    if (!cur.assignee_id) throw bad('NOT_ASSIGNED', 'This issue has no owner to decline.');
+    if (cur.assignee_id !== p.id && p.role !== 'admin') throw forbidden('Only the person it is assigned to can decline it.');
+    const frames = tx(() => declineIssue(cur.id, actorOf(p), b.reason ?? null));
+    publishAll(cur.event_id, frames);
+    nudgeDispatch();
     res.json({ issue: toIssue(getIssueRow(cur.id)!) });
   }));
 

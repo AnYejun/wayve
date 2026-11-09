@@ -93,6 +93,17 @@ function findIssueToJoin(eventId: string, zoneId: string | null, category: Repor
   return bestScore >= 0.5 ? best : null;
 }
 
+/** When staff sent category 'auto' and the model gave none (AI off or failed), map what it saw to a category. */
+function categoryFromIncident(t: string | null | undefined): ReportCategory {
+  switch (t) {
+    case 'overcrowding': case 'long_queue': return 'crowd';
+    case 'fire_smoke': case 'fight': case 'suspicious_item': case 'obstruction': return 'safety';
+    case 'spill': return 'facility';
+    case 'medical': return 'medical';
+    default: return 'other';
+  }
+}
+
 function priorityFor(urgency: Urgency, category: ReportCategory): Priority {
   if (urgency === 'urgent') return category === 'safety' || category === 'medical' ? 'p0' : 'p1';
   return urgency === 'caution' ? 'p2' : 'p3';
@@ -111,10 +122,14 @@ function matchZoneName(eventId: string, hint: string | null): ZoneRow | null {
 export interface CreateReportInput {
   participant: ParticipantRow;
   zoneId: string | null;
-  category: ReportCategory;
-  urgency: Urgency;
+  /** Where the reporter is (chat reports): used only when the report itself names no zone. */
+  hereZoneId?: string | null;
+  /** 'auto' (chat attachments): the model picks from the note and images. */
+  category: ReportCategory | 'auto';
+  urgency: Urgency | 'auto';
   text: string | null;
-  photo: { mime: string; buf: Buffer } | null;
+  /** All go to the model (≤ 4: photos or key frames of a short video); only the first is stored. */
+  photos: Array<{ mime: string; buf: Buffer }>;
   audio: { mime: string; buf: Buffer } | null;
   parentReportId: string | null;
 }
@@ -134,7 +149,9 @@ export async function createReport(inp: CreateReportInput): Promise<{ report: Re
   if (inp.parentReportId && !parent) throw new ReportError(404, 'NOT_FOUND', 'The original report was not found.');
   let explicitZone = inp.zoneId ? getZoneRow(inp.zoneId) : undefined;
   if (explicitZone && explicitZone.event_id !== eventId) explicitZone = undefined;
-  const fallbackZone = explicitZone ?? (parent?.zone_id ? getZoneRow(parent.zone_id) : undefined) ?? (device?.zone_id ? getZoneRow(device.zone_id) : undefined);
+  let hereZone = inp.hereZoneId ? getZoneRow(inp.hereZoneId) : undefined;
+  if (hereZone && hereZone.event_id !== eventId) hereZone = undefined;
+  const fallbackZone = explicitZone ?? (parent?.zone_id ? getZoneRow(parent.zone_id) : undefined) ?? hereZone ?? (device?.zone_id ? getZoneRow(device.zone_id) : undefined);
 
   // 1. Voice → text (audio is never stored).
   let transcript: string | null = null;
@@ -143,14 +160,14 @@ export async function createReport(inp: CreateReportInput): Promise<{ report: Re
     const tr = await transcribe(inp.audio.buf, inp.audio.mime, zones.map((z) => z.name));
     transcript = tr.text.trim() || null;
   }
-  if (!inp.text && !transcript && !inp.photo) throw new ReportError(400, 'EMPTY', "We couldn't hear anything. Add a note or a photo.");
+  if (!inp.text && !transcript && !inp.photos.length) throw new ReportError(400, 'EMPTY', "We couldn't hear anything. Add a note or a photo.");
 
   // 2. AI summary (best effort — a report is never lost because the AI failed).
   let ai: (ReportAi & { model: string }) | null = null;
   if (aiInfo().enabled) {
     try {
       const r = await structureFieldReport({
-        text: inp.text, transcript, photo: inp.photo, category: REPORT_CATEGORY_LABEL[inp.category], urgency: inp.urgency,
+        text: inp.text, transcript, photos: inp.photos, category: inp.category === 'auto' ? 'auto' : REPORT_CATEGORY_LABEL[inp.category], urgency: inp.urgency,
         zoneName: fallbackZone?.name ?? null, zones: zones.map((z) => z.name),
       });
       ai = { ...r.ai, model: r.model };
@@ -159,11 +176,14 @@ export async function createReport(inp: CreateReportInput): Promise<{ report: Re
     }
   }
   const zone = explicitZone ?? matchZoneName(eventId, ai?.zone_hint ?? null) ?? fallbackZone ?? null;
+  const category: ReportCategory = inp.category !== 'auto' ? inp.category : ai?.category ?? categoryFromIncident(ai?.incident_type);
+  const urgency: Urgency = inp.urgency !== 'auto' ? inp.urgency : ai?.urgency ?? 'normal';
   const words = (inp.text || transcript || '').trim();
-  const title = (ai?.title || (words ? words.split(/[.!?\n]/)[0].slice(0, 60) : `${REPORT_CATEGORY_LABEL[inp.category]} report${zone ? ` · ${zone.name}` : ''}`)).trim();
+  const title = (ai?.title || (words ? words.split(/[.!?\n]/)[0].slice(0, 60) : `${REPORT_CATEGORY_LABEL[category]} report${zone ? ` · ${zone.name}` : ''}`)).trim();
 
-  // 3. Photo is kept (staff took it on purpose for this report).
-  const photoPath = inp.photo ? saveMedia('reports', inp.photo.buf, inp.photo.mime) : null;
+  // 3. The first photo is kept (staff took it on purpose for this report); extra images / video frames are analysed only.
+  const photo = inp.photos[0] ?? null;
+  const photoPath = photo ? saveMedia('reports', photo.buf, photo.mime) : null;
 
   const now = Date.now();
   const actor: Actor = { kind: 'human', id: p.id, name: p.display_name };
@@ -177,7 +197,7 @@ export async function createReport(inp: CreateReportInput): Promise<{ report: Re
         id: p.id, event_id: eventId, participant_id: p.id, zone_id: zone.id, device_type: 'reporter', status: 'idle', label: p.display_name,
         last_seen_at: now, last_frame_at: null, last_error: null, created_at: p.created_at,
       };
-      const modality: Modality = inp.photo ? 'vision' : inp.audio ? 'voice' : 'text';
+      const modality: Modality = photo ? 'vision' : inp.audio ? 'voice' : 'text';
       const r = applyObservation({
         eventId, zone, device: dev, participant: p, modality, now,
         payload: {
@@ -194,16 +214,16 @@ export async function createReport(inp: CreateReportInput): Promise<{ report: Re
     const evidence = observationId ? [{ type: 'observation' as const, id: observationId }] : [];
 
     // 5. Same spot → same issue. Otherwise a new problem issue owned by the reporter's report.
-    let issueId: string | null = parent?.issue_id ?? findIssueToJoin(eventId, zone?.id ?? null, inp.category, title, now)?.id ?? null;
+    let issueId: string | null = parent?.issue_id ?? findIssueToJoin(eventId, zone?.id ?? null, category, title, now)?.id ?? null;
     if (issueId && getIssueRow(issueId)) {
       const cur = getIssueRow(issueId)!;
-      const want = priorityFor(inp.urgency, inp.category);
+      const want = priorityFor(urgency, category);
       const ch = want < cur.priority ? { priority: want } : {}; // 'p0' < 'p1' … raise, never lower
       frames.push(...changeIssue(issueId, ch, actor, evidence, null, now));
       if (incidentId && !cur.incident_id) q.run('UPDATE issues SET incident_id = ? WHERE id = ?', incidentId, issueId);
     } else {
       const c = createIssue({
-        eventId, title, kind: 'problem', priority: priorityFor(inp.urgency, inp.category), teamId: null, assigneeId: null, assigneeHint: null,
+        eventId, title, kind: 'problem', priority: priorityFor(urgency, category), teamId: null, assigneeId: null, assigneeHint: null,
         dueAt: null, zoneId: zone?.id ?? null, incidentId, actor, evidence, confidence: null, now,
       });
       issueId = c.issue.id;
@@ -217,7 +237,7 @@ export async function createReport(inp: CreateReportInput): Promise<{ report: Re
     const id = newId('rp');
     q.run(`INSERT INTO reports (id, event_id, author_id, zone_id, category, urgency, text, transcript, photo_path, ai_json, issue_id, observation_id, parent_report_id, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      id, eventId, p.id, zone?.id ?? null, inp.category, inp.urgency, inp.text, transcript, photoPath,
+      id, eventId, p.id, zone?.id ?? null, category, urgency, inp.text, transcript, photoPath,
       ai ? JSON.stringify({ title: ai.title, location: ai.location, situation: ai.situation, summary: ai.summary, confidence: ai.confidence, model: ai.model }) : null,
       issueId, observationId, parent?.id ?? null, now);
     const report = toReport(getReportRow(id)!);

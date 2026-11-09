@@ -24,7 +24,7 @@ export function TopBar({ scrollRef, title, eventName, status }: {
           <span className="truncate text-[15px] font-semibold tracking-[-0.01em] text-fg">{title}</span>
           {eventName ? <span className="truncate text-[13px] text-fg-3">{eventName}</span> : null}
         </motion.div>
-        <motion.div style={{ opacity: titleOpacity }} className="pointer-events-auto ml-auto">
+        <motion.div style={{ opacity: titleOpacity }} className="pointer-events-none ml-auto">
           <LiveIndicator status={status} className="h-6 px-2 text-[12px]" />
         </motion.div>
       </div>

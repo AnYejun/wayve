@@ -2,7 +2,7 @@
 // camera or scribe (label, zone, map position, team and AI crew persona are set by the server), shows how to mount it,
 // then opens the camera / scribe screen. Poster spots forward to the attendee chat.
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { motion } from 'motion/react';
 import { ArrowRight, Camera, Check, Loader2, Mic, RotateCw } from 'lucide-react';
 import { AGENT_ROLE_DEFS, type Device, type EventInfo, type InstallSlot } from '@shared/contracts';
@@ -15,6 +15,8 @@ type State = { kind: 'loading' } | { kind: 'ready'; event: EventInfo; slot: Inst
 
 export default function SlotSetupPage() {
   const { code = '', slotId = '' } = useParams();
+  const [search] = useSearchParams();
+  const key = search.get('k');
   const nav = useNavigate();
   const [st, setSt] = useState<State>({ kind: 'loading' });
   const once = useRef(false);
@@ -24,7 +26,7 @@ export default function SlotSetupPage() {
     try {
       const { event, slot } = await presetApi.slot(code, slotId);
       if (slot.kind === 'poster') { nav(`/j/${code}?as=guest`, { replace: true }); return; }
-      const { device } = await presetApi.join(code, slot);
+      const { device } = await presetApi.join(code, slot, key);
       navigator.vibrate?.(30);
       setSt({ kind: 'ready', event, slot, device });
     } catch (e) {

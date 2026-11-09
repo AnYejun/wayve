@@ -8,7 +8,8 @@ const MAX_CLIENTS = 2000;
 const HB_MS = 15_000;
 const MAX_BUFFERED = 512 * 1024;
 
-type Client = { res: Response; channel: string };
+/** filter: per-client view of a frame (undefined = skip). Used for no-login camera/scribe phones. */
+type Client = { res: Response; channel: string; filter?: (event: string, data: unknown) => unknown };
 const channels = new Map<string, Set<Client>>();
 let total = 0;
 
@@ -31,7 +32,7 @@ function safeWrite(c: Client, chunk: string): boolean {
   try { res.write(chunk); return true; } catch { drop(c); return false; }
 }
 
-export function openStream(req: Request, res: Response, channel: string, initial: Array<{ event: string; data: unknown }>): boolean {
+export function openStream(req: Request, res: Response, channel: string, initial: Array<{ event: string; data: unknown }>, filter?: Client['filter']): boolean {
   if (total >= MAX_CLIENTS) {
     res.setHeader('Retry-After', '5');
     res.status(503).json({ error: { code: 'SERVER_BUSY', message: 'Too many connections. Reconnecting shortly.' } });
@@ -46,7 +47,7 @@ export function openStream(req: Request, res: Response, channel: string, initial
   req.socket.setNoDelay(true);
   req.socket.setTimeout(0);
   res.flushHeaders?.();
-  const c: Client = { res, channel };
+  const c: Client = { res, channel, filter };
   let set = channels.get(channel);
   if (!set) { set = new Set(); channels.set(channel, set); }
   set.add(c);
@@ -63,7 +64,12 @@ export function publish(channel: string, event: string, data: unknown) {
   const set = channels.get(channel);
   if (!set?.size) return;
   const f = sseFrame(event, data);
-  for (const c of [...set]) safeWrite(c, f);
+  for (const c of [...set]) {
+    if (!c.filter) { safeWrite(c, f); continue; }
+    let d: unknown;
+    try { d = c.filter(event, data); } catch { d = undefined; }
+    if (d !== undefined) safeWrite(c, d === data ? f : sseFrame(event, d));
+  }
 }
 
 export const sseCount = () => total;

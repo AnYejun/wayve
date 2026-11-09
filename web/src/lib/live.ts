@@ -46,7 +46,7 @@ type Upsert = { kind: 'zone'; data: Zone } | { kind: 'device'; data: Device } | 
   | { kind: 'team'; data: Team } | { kind: 'team_removed'; data: { id: string } } | { kind: 'issue'; data: Issue }
   | { kind: 'issue_event'; data: IssueEvent } | { kind: 'proposal'; data: Proposal } | { kind: 'utterance'; data: Utterance }
   | { kind: 'message'; data: TalkMessage } | { kind: 'report'; data: Report } | { kind: 'event'; data: Snapshot['event'] }
-  | { kind: 'agent'; data: CrewAgent } | { kind: 'agent_post'; data: AgentPost };
+  | { kind: 'agent'; data: CrewAgent } | { kind: 'agent_post'; data: AgentPost } | { kind: 'agent_removed'; data: { id: string } };
 
 function upsert<T extends { id: string | number }>(list: T[], item: T, opts: { prepend?: boolean; cap?: number } = {}): T[] {
   const i = list.findIndex((x) => x.id === item.id);
@@ -87,12 +87,13 @@ export function reduce(snap: Snapshot, u: Upsert): Snapshot {
     case 'agent': return { ...snap, crew: (snap.crew ?? []).some((a) => a.id === u.data.id)
       ? snap.crew.map((a) => (a.id === u.data.id ? u.data : a)) : [...(snap.crew ?? []), u.data] };
     case 'agent_post': return { ...snap, crewPosts: upsert(snap.crewPosts ?? [], u.data, { prepend: true, cap: 60 }) };
+    case 'agent_removed': return { ...snap, crew: (snap.crew ?? []).filter((a) => a.id !== u.data.id) };
     case 'report': return { ...snap, reports: upsert(snap.reports, u.data, { prepend: true, cap: 100 }).sort((a, b) => b.createdAt - a.createdAt) };
   }
 }
 
 const KINDS = ['zone', 'zone_removed', 'device', 'participant', 'incident', 'task', 'observation', 'activity',
-  'team', 'team_removed', 'issue', 'issue_event', 'proposal', 'utterance', 'message', 'report', 'event', 'agent', 'agent_post'] as const;
+  'team', 'team_removed', 'issue', 'issue_event', 'proposal', 'utterance', 'message', 'report', 'event', 'agent', 'agent_post', 'agent_removed'] as const;
 
 export function useLive(eventId: string | null | undefined) {
   const [snap, setSnap] = useState<Snapshot | null>(null);

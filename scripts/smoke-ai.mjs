@@ -13,9 +13,9 @@ const ev = (await call(admin, 'POST', '/api/events', { name: 'AI check', templat
 const snap = (await call(admin, 'GET', `/api/events/${ev.id}/snapshot`)).json;
 console.log('ai:', snap.ai);
 const zone = snap.zones.find((z) => z.name === 'Food court');
-const c = (await call(cam, 'POST', '/api/join', { code: ev.joinCode, as: 'camera', zoneId: zone.id })).json;
+const c = (await call(cam, 'POST', '/api/join', { code: ev.joinCode, key: ev.joinKey, as: 'camera', zoneId: zone.id })).json;
 await signup(staff, 'Sam');
-const s = (await call(staff, 'POST', '/api/join', { code: ev.joinCode, as: 'staff' })).json;
+const s = (await call(staff, 'POST', '/api/join', { code: ev.joinCode, key: ev.joinKey, as: 'staff' })).json;
 let r = await call(cam, 'POST', `/api/devices/${c.device.id}/frames`, null, { data: fs.readFileSync(IMG), type: 'image/jpeg' });
 console.log(`\nvision ${r.status} in ${r.ms}ms`, r.status === 200 ? { model: r.json.observation.model, latency: r.json.observation.latencyMs, payload: r.json.observation.payload, zone: r.json.zone.status } : r.json);
 r = await call(staff, 'POST', `/api/devices/${s.me.deviceId}/report`, { text: 'Someone spilled a drink next to the tables in the food court, the floor is slippery', zoneId: zone.id });

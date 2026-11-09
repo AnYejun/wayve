@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
+import { withKey } from '@/lib/links';
 
 export function Teams({ snap }: { snap: Snapshot }) {
   const [name, setName] = useState('');
@@ -95,16 +96,16 @@ export function Invite({ snap }: { snap: Snapshot }) {
           <div key={t.id} className="rounded-[16px] border border-[rgb(23_21_15/.1)] bg-white p-4 break-inside-avoid">
             <p className="text-[12px] font-semibold tracking-[.08em] text-fg-3 uppercase">{t.name}</p>
             <div className="mt-2 grid grid-cols-2 gap-3">
-              <MiniQr label="Staff · sign in" url={`${origin}/j/${code}?as=staff&team=${t.id}`} />
-              <MiniQr label="Meeting scribe" url={`${origin}/j/${code}?as=scribe&team=${t.id}`} />
+              <MiniQr label="Staff · sign in" url={withKey(`${origin}/j/${code}?as=staff&team=${t.id}`, snap.joinKey)} />
+              <MiniQr label="Meeting scribe" url={withKey(`${origin}/j/${code}?as=scribe&team=${t.id}`, snap.joinKey)} />
             </div>
           </div>
         ))}
-        <QrCard title="Staff (any team)" sub="Staff sign in with their WAYVE ID." url={`${origin}/j/${code}?as=staff`} />
+        <QrCard title="Staff (any team)" sub="Staff sign in with their WAYVE ID." url={withKey(`${origin}/j/${code}?as=staff`, snap.joinKey)} />
       </div>
       <p className="mt-8 mb-3 text-[13px] font-semibold text-fg">Zone cameras</p>
       <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-4 print:grid-cols-3">
-        {snap.zones.map((z) => <QrCard key={z.id} title={z.name} sub="Camera for this zone" url={`${origin}/j/${code}?as=camera&z=${z.id}`} small />)}
+        {snap.zones.map((z) => <QrCard key={z.id} title={z.name} sub="Camera for this zone" url={withKey(`${origin}/j/${code}?as=camera&z=${z.id}`, snap.joinKey)} small />)}
       </div>
     </div>
   );

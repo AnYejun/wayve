@@ -80,7 +80,7 @@ export default function CrewSection() {
 
       <AddAgent snap={snap} eventId={eventId} open={adding} onOpenChange={setAdding} onCreated={(a) => apply({ kind: 'agent', data: a })} />
       <AgentSheet snap={snap} agent={crew.find((a) => a.id === openId) ?? null} onClose={() => setOpenId(null)} now={now}
-        onSaved={(a) => apply({ kind: 'agent', data: a })} onOpenIssue={openIssue} />
+        onSaved={(a) => apply({ kind: 'agent', data: a })} onRemoved={(id) => apply({ kind: 'agent_removed', data: { id } })} onOpenIssue={openIssue} />
     </Page>
   );
 }
@@ -207,7 +207,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <label className="block"><span className="mb-1.5 block text-[12px] font-semibold tracking-[.02em] text-fg-2">{label}</span>{children}</label>;
 }
 
-function AgentSheet({ snap, agent, onClose, now, onSaved, onOpenIssue }: { snap: Snapshot; agent: CrewAgent | null; onClose: () => void; now: number; onSaved: (a: CrewAgent) => void; onOpenIssue: (k: string) => void }) {
+function AgentSheet({ snap, agent, onClose, now, onSaved, onRemoved, onOpenIssue }: { snap: Snapshot; agent: CrewAgent | null; onClose: () => void; now: number; onSaved: (a: CrewAgent) => void; onRemoved: (id: string) => void; onOpenIssue: (k: string) => void }) {
   const [instructions, setInstructions] = useState('');
   const [deviceId, setDeviceId] = useState('');
   const [busy, setBusy] = useState(false);
@@ -221,7 +221,7 @@ function AgentSheet({ snap, agent, onClose, now, onSaved, onOpenIssue }: { snap:
   };
   const remove = async () => {
     if (!agent) return;
-    try { await api(`/api/agents/${agent.id}`, { method: 'DELETE' }); toast.success(`${agent.name} left the crew`); onClose(); } catch (e) { toast.error((e as HttpError).message); }
+    try { await api(`/api/agents/${agent.id}`, { method: 'DELETE' }); onRemoved(agent.id); toast.success(`${agent.name} left the crew`); onClose(); } catch (e) { toast.error((e as HttpError).message); }
   };
   const posts = (snap.crewPosts ?? []).filter((p) => p.agentId === agent?.id);
   const devices = agent ? devicesFor(agent.role, snap.devices) : [];

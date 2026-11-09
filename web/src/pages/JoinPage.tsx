@@ -39,6 +39,7 @@ export default function JoinPage() {
   const presetRole: Role | null = asParam === 'camera' || asParam === 'staff' || asParam === 'guest' || asParam === 'scribe' ? asParam : null;
   const presetZone = search.get('z');
   const presetTeam = search.get('team');
+  const key = search.get('k'); // organizer's join key: required for staff, camera and scribe
   const [phase, setPhase] = useState<Phase>({ k: 'preview' });
   const started = useRef(false);
 
@@ -51,13 +52,13 @@ export default function JoinPage() {
         await API.joinAttendee(code);
         to = '/chat';
       } else if (role === 'scribe') {
-        const r = await API.join({ code, as: 'scribe', teamId: presetTeam });
+        const r = await API.join({ code, as: 'scribe', teamId: presetTeam, key });
         to = r.device ? `/scribe/${r.device.id}` : '/staff';
       } else if (role === 'staff') {
-        await API.join({ code, as: 'staff', teamId: teamOverride ?? presetTeam, name: name?.trim() || null });
+        await API.join({ code, as: 'staff', teamId: teamOverride ?? presetTeam, name: name?.trim() || null, key });
         to = `/staff?event=${encodeURIComponent(p.event.id)}`;
       } else {
-        const r = await API.join({ code, as: 'camera', zoneId });
+        const r = await API.join({ code, as: 'camera', zoneId, key });
         to = r.device ? `/device/${r.device.id}` : '/staff';
       }
       setPhase({ k: 'done', p, role, zoneName });
@@ -71,7 +72,7 @@ export default function JoinPage() {
       else if (he.status === 404 || he.status === 400 || he.status === 410) setPhase({ k: 'invalid' });
       else setPhase({ k: 'network', message: he.message });
     }
-  }, [code, navigate, presetTeam]);
+  }, [code, navigate, presetTeam, key]);
 
   /** Staff: signed in → one tap (team picker when the QR didn't name a team); signed out → name + team, no account. */
   const staffJoin = useCallback(async (p: Preview) => {

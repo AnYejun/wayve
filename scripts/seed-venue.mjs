@@ -94,7 +94,7 @@ const staff = {};
 for (const [key, name, t, zone] of people) {
   const j = jar();
   await account(j, key, name);
-  const r = warn(await call(j, 'POST', '/api/join', { code: ev.joinCode, as: 'staff', teamId: team[t] }), `join ${name}`);
+  const r = warn(await call(j, 'POST', '/api/join', { code: ev.joinCode, key: ev.joinKey, as: 'staff', teamId: team[t] }), `join ${name}`);
   const deviceId = r.json?.device?.id ?? r.json?.me?.deviceId;
   if (deviceId) warn(await call(j, 'PATCH', `/api/devices/${deviceId}`, { zoneId: zid[zone] }), `${name} location`);
   staff[name] = { j, deviceId };
@@ -106,7 +106,7 @@ console.log(`staff: ${people.map((p) => `${p[1]} (${p[2]} @ ${p[3]})`).join(', '
 const cams = {};
 for (const [zone, label, pos] of [['Entrance', 'Entrance camera', [2260, 1700]], ['Lounge B', 'Lounge B camera', [1700, 900]]]) {
   const j = jar();
-  const r = warn(await call(j, 'POST', '/api/join', { code: ev.joinCode, as: 'camera', zoneId: zid[zone] }), `camera ${zone}`);
+  const r = warn(await call(j, 'POST', '/api/join', { code: ev.joinCode, key: ev.joinKey, as: 'camera', zoneId: zid[zone] }), `camera ${zone}`);
   const id = r.json?.device?.id;
   if (id) {
     warn(await call(j, 'PATCH', `/api/devices/${id}`, { label, mode: 'observing' }), 'camera label');
@@ -118,7 +118,7 @@ for (const [zone, label, pos] of [['Entrance', 'Entrance camera', [2260, 1700]],
 let scribeId = null;
 {
   const j = jar();
-  const r = warn(await call(j, 'POST', '/api/join', { code: ev.joinCode, as: 'scribe', teamId: team.HQ }), 'scribe');
+  const r = warn(await call(j, 'POST', '/api/join', { code: ev.joinCode, key: ev.joinKey, as: 'scribe', teamId: team.HQ }), 'scribe');
   scribeId = r.json?.device?.id ?? null;
   if (scribeId) warn(await call(org, 'PUT', `/api/devices/${scribeId}/position`, { position: [1200, 1940] }), 'scribe position');
 }

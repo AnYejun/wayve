@@ -2,10 +2,11 @@
 // writes the database (callers apply results through rules). All outputs are English.
 import { z } from 'zod';
 import {
-  CERTAINTIES, CROWD_LEVELS, HAZARD_TYPES, INCIDENT_TYPES, ISSUE_STATUSES, PRIORITIES, SEATINGS, VIEW_QUALITIES, WALKWAYS, ZONE_TYPE_PROFILE,
-  type CrowdLevel, type HazardType, type IncidentType, type ProposedAction, type RegionAssessment, type ZoneType,
+  CERTAINTIES, CROWD_LEVELS, HAZARD_TYPES, INCIDENT_TYPES, ISSUE_STATUSES, PRIORITIES, REPORT_CATEGORIES, SEATINGS, URGENCIES, VIEW_QUALITIES, WALKWAYS,
+  ZONE_TYPE_PROFILE,
+  type CrowdLevel, type HazardType, type IncidentType, type ProposedAction, type RegionAssessment, type ReportCategory, type Urgency, type ZoneType,
 } from '../shared/contracts.ts';
-import { AiError, clamp01, client, limited, respond, safeJson } from './ai.ts';
+import { AiError, clamp01, client, limited, respond, safeJson, replyLanguage } from './ai.ts';
 import { config } from './config.ts';
 import { log } from './log.ts';
 
@@ -24,11 +25,13 @@ function parsed<T>(schema: z.ZodType<T>, text: string, what: string): T {
 export interface ReportAi {
   title: string; location: string | null; situation: string; summary: string; incident_type: IncidentType | 'none';
   crowd_level: CrowdLevel | null; zone_hint: string | null; confidence: number;
+  /** The model's pick — used only when staff sent category/urgency 'auto' (chat attachments). */
+  category: ReportCategory; urgency: Urgency;
 }
 
 const REPORT_SCHEMA = {
   type: 'object', additionalProperties: false,
-  required: ['title', 'location', 'situation', 'summary', 'incident_type', 'crowd_level', 'zone_hint', 'confidence'],
+  required: ['title', 'location', 'situation', 'summary', 'incident_type', 'crowd_level', 'zone_hint', 'category', 'urgency', 'confidence'],
   properties: {
     title: { type: 'string', description: 'issue-style headline, ≤ 60 chars, e.g. "Long queue at Zone B entrance"' },
     location: { type: ['string', 'null'], description: 'specific spot, e.g. "Zone B entrance", null if unknown' },
@@ -37,29 +40,36 @@ const REPORT_SCHEMA = {
     incident_type: { type: 'string', enum: [...INCIDENT_TYPES, 'none'] },
     crowd_level: { type: ['string', 'null'], enum: [...CROWD_LEVELS, null] },
     zone_hint: { type: ['string', 'null'], description: 'zone name copied exactly from the list if the report refers to one, else null' },
+    category: { type: 'string', enum: [...REPORT_CATEGORIES], description: 'crowd (people, queues), facility (equipment, spills, cleaning), supplies (running out), safety (hazards, fights, suspicious items), medical, other. Echo the staff choice when one was given.' },
+    urgency: { type: 'string', enum: [...URGENCIES], description: 'urgent = someone may get hurt or the event is blocked now; caution = needs attention soon; normal = routine. Echo the staff choice when one was given.' },
     confidence: { type: 'number', description: '0..1 how clear the report is' },
   },
 } as const;
 const ReportZ = z.object({
   title: z.string(), location: z.string().nullable(), situation: z.string(), summary: z.string(),
-  incident_type: z.enum([...INCIDENT_TYPES, 'none']), crowd_level: z.enum(CROWD_LEVELS).nullable(), zone_hint: z.string().nullable(), confidence: z.number(),
+  incident_type: z.enum([...INCIDENT_TYPES, 'none']), crowd_level: z.enum(CROWD_LEVELS).nullable(), zone_hint: z.string().nullable(),
+  category: z.enum(REPORT_CATEGORIES), urgency: z.enum(URGENCIES), confidence: z.number(),
 });
 
 export async function structureFieldReport(inp: {
-  text: string | null; transcript: string | null; photo: { mime: string; buf: Buffer } | null; category: string; urgency: string;
+  text: string | null; transcript: string | null; photos: Array<{ mime: string; buf: Buffer }>; category: string; urgency: string;
   zoneName: string | null; zones: string[];
 }): Promise<{ ai: ReportAi; model: string; latencyMs: number }> {
+  const photos = inp.photos.slice(0, 4);
   const model = config.OPENAI_VISION_MODEL;
   const content = [
     txt([
-      `Category chosen by staff: ${inp.category} · urgency: ${inp.urgency}`,
+      inp.category === 'auto' ? 'Category: not chosen — pick the best fit.' : `Category chosen by staff: ${inp.category}`,
+      inp.urgency === 'auto' ? 'Urgency: not chosen — judge it from what is shown and said.' : `Urgency chosen by staff: ${inp.urgency}`,
       `Reporter's zone: ${inp.zoneName ?? 'unknown'}`,
       `Venue zones: ${inp.zones.join(', ') || 'none'}`,
       inp.text ? `Typed note: """${inp.text.slice(0, 1000)}"""` : 'Typed note: none',
       inp.transcript ? `Voice note (speech-to-text): """${inp.transcript.slice(0, 1000)}"""` : 'Voice note: none',
-      inp.photo ? 'A photo from the reporter is attached.' : 'No photo.',
-    ].join('\n')),
-    ...(inp.photo ? [img(inp.photo.mime, inp.photo.buf, 'low')] : []),
+      photos.length > 1 ? `${photos.length} images from the reporter are attached (photos or key frames of a short video, in order).`
+        : photos.length ? 'A photo from the reporter is attached.' : 'No photo.',
+      !inp.text && !inp.transcript && photos.length ? 'There is no note: write the title and summary from what the images show.' : '',
+    ].filter(Boolean).join('\n')),
+    ...photos.map((ph) => img(ph.mime, ph.buf, 'low')),
   ];
   const { text, latencyMs } = await respond({
     model,
@@ -78,6 +88,7 @@ crowd_level only when the report is about how crowded it is.`,
     ai: {
       title: r.title.trim().slice(0, 80), location: r.location?.slice(0, 60) ?? null, situation: r.situation.slice(0, 80), summary: r.summary.slice(0, 400),
       incident_type: r.incident_type, crowd_level: r.crowd_level, zone_hint: r.zone_hint, confidence: clamp01(r.confidence),
+      category: r.category, urgency: r.urgency,
     },
   };
 }
@@ -280,20 +291,24 @@ const TurnZ = z.object({
   })).max(5),
 });
 
-export async function assistantModel(utterance: string, asker: string, context: string, spoken: boolean): Promise<{
+export async function assistantModel(utterance: string, asker: string, context: string, spoken: boolean, images: Array<{ mime: string; buf: Buffer }> = []): Promise<{
   answer: string; issues: number[]; lines: string[]; zones: string[]; devices: string[]; actions: Array<ProposedAction & { confidence: number }>; model: string;
 }> {
-  const model = config.OPENAI_TEXT_MODEL;
+  const pics = images.slice(0, 4);
+  const model = pics.length ? config.OPENAI_VISION_MODEL : config.OPENAI_TEXT_MODEL;
   const { text } = await respond({
     model,
     instructions: `You are WAYVE, the on-site AI assistant for one staff member (${asker}) at a live event. You know everything in the live state below: issues, field reports, meeting transcripts and radio, zones, cameras, people, and the organizers' run-of-show/FAQ. It is current.
-Answer in ENGLISH, concretely (issue keys like WV-12, people, zones, times). ${spoken ? 'Your answer will be SPOKEN: at most 3 short sentences, no lists, no symbols, say "W V 12" as "issue 12".' : 'At most 4 short sentences or a very short list.'}
+LANGUAGE: write "answer" in ${replyLanguage(utterance) === 'Korean' ? 'natural, polite Korean (해요체)' : 'English'} — the language of ${asker}'s message — whatever language the names or the state use. Be concrete (issue keys like WV-12, people, zones, times — keep keys, zone names and device labels exactly as written). Action titles and notes are always English. ${spoken ? 'Your answer will be SPOKEN: at most 3 short sentences, no lists, no symbols, say "WV-12" as "issue 12" (in Korean: "12번 이슈").' : 'At most 4 short sentences or a very short list.'}
 If the information is not in the state, say so. Never invent facts.
 ZONES/DEVICES: list every zone (exact name) and device (exact label) your answer is about — the app shows them on an inline map. For "busiest/where/which zone" questions include the relevant zones.
 ACTIONS: only when ${asker} clearly asks you to change the tracker ("mark 12 done", "assign the badge printing to Jimin", "log a spill at the lobby", "I'm on it" about a specific issue). Use type update with issue_number for existing issues; create for new work/problems; decision for explicit decisions. "I/me" = ${asker}. Questions never produce actions. confidence 0.9+ only when explicit.`,
-    content: [txt(`${context}\n\n${asker} says: """${utterance.slice(0, 800)}"""`)],
+    content: [
+      txt(`${context}\n\n${asker} says: """${utterance.slice(0, 800)}"""${pics.length ? `\n${asker} attached ${pics.length} image${pics.length === 1 ? '' : 's'} from their phone (photos or frames of a short video, in order): use what they show.` : ''}`),
+      ...pics.map((ph) => img(ph.mime, ph.buf, 'low')),
+    ],
     schema: { name: 'assistant_turn', schema: TURN_SCHEMA },
-    maxOutputTokens: 900,
+    maxOutputTokens: 1400,
     timeoutMs: config.TEXT_TIMEOUT_MS + 10_000,
   });
   const r = parsed(TurnZ, text, 'assistant');

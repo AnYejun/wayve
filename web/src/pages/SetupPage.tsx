@@ -49,7 +49,7 @@ function CreateEvent() {
         <motion.h1 initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={spring.gentle} className="text-[40px] leading-[1.08] font-semibold tracking-[-0.035em] text-fg">New event</motion.h1>
         <p className="mt-2 text-[16px] text-fg-2">Name it and pick where it happens — your real venue with its install plan, or a generic layout you can replace with a floor plan.</p>
         <label className="mt-8 block text-[13px] font-semibold text-fg">Event name</label>
-        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="SKKU Hackathon 2026" className="mt-2 h-12 text-[16px]" autoFocus
+        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="c0mpiled-17: Seoul" className="mt-2 h-12 text-[16px]" autoFocus
           onKeyDown={(e) => { if (e.key === 'Enter') void create(); }} />
         <p className="mt-8 text-[13px] font-semibold text-fg">Venue</p>
         <div className="mt-3"><PresetPicker selected={tpl} onSelect={setTpl} /></div>

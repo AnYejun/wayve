@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import type { Device } from '@shared/contracts';
-import { useLastPulseAt, usePulses } from '@/lib/live';
+import { serverNow, useLastPulseAt, usePulses } from '@/lib/live';
 import { cn } from '@/lib/utils';
 
 /** Re-render on an interval only while something is animating. */
@@ -19,17 +19,22 @@ function useTick(ms: number, active: boolean) {
 
 /** Live signal for one device: viewfinder (camera), audio bars (scribe), heartbeat (staff phone). */
 export function DeviceSignal({ device, className }: { device: Device; className?: string }) {
-  if (device.deviceType === 'camera') return <CameraSignal deviceId={device.id} className={className} />;
+  if (device.deviceType === 'camera') return <CameraSignal deviceId={device.id} lastFrameAt={device.lastFrameAt} className={className} />;
   if (device.deviceType === 'scribe') return <ScribeSignal deviceId={device.id} className={className} />;
   return <HeartSignal deviceId={device.id} className={className} />;
 }
 
-function CameraSignal({ deviceId, className }: { deviceId: string; className?: string }) {
+const agoShort = (ms: number) => (ms < 60_000 ? `${Math.max(1, Math.round(ms / 1000))}s` : `${Math.round(ms / 60_000)}m`);
+
+function CameraSignal({ deviceId, lastFrameAt, className }: { deviceId: string; lastFrameAt: number | null; className?: string }) {
   const pulses = usePulses(deviceId);
   const reduced = useReducedMotion();
   const last = pulses.find((p) => p.kind === 'frame');
-  const now = useTick(1000, !!last);
-  const live = !!last && now - last.at < 9000;
+  // A frame counts from either signal: the live pulse (client clock) or the device's last analysed frame (server clock),
+  // so a dashboard opened between frames — or a slow AI beat — never reads as "waiting".
+  const frameAt = Math.max(last?.at ?? 0, lastFrameAt ? lastFrameAt - (serverNow() - Date.now()) : 0);
+  const now = useTick(1000, frameAt > 0);
+  const live = frameAt > 0 && now - frameAt < 15_000;
   const gaps = pulses.filter((p) => p.kind === 'frame').slice(0, 4).map((p, i, a) => (i ? a[i - 1].at - p.at : 0)).filter(Boolean);
   const every = gaps.length ? Math.max(1, Math.round(gaps.reduce((s, g) => s + g, 0) / gaps.length / 1000)) : 4;
   return (
@@ -47,7 +52,7 @@ function CameraSignal({ deviceId, className }: { deviceId: string; className?: s
         </AnimatePresence>
         <span className={cn('absolute top-[4px] right-[4px] size-[5px] rounded-full', live ? 'bg-[#58e07a]' : 'bg-white/30')} />
       </span>
-      <span className={cn('text-[12px] font-medium tabular-nums', live ? 'text-[#2f6b3c]' : 'text-fg-3')}>{live ? `Receiving · every ${every}s` : 'Waiting for frames'}</span>
+      <span className={cn('text-[12px] font-medium tabular-nums', live ? 'text-[#2f6b3c]' : 'text-fg-3')}>{live ? `Receiving · every ${every}s` : frameAt ? `Last frame ${agoShort(now - frameAt)} ago` : 'Waiting for frames'}</span>
     </span>
   );
 }

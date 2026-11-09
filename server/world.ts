@@ -1,11 +1,12 @@
 // World state: DB rows → wire shapes (shared/contracts.ts), the per-viewer snapshot, and publishing over SSE.
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import type {
   AgentPost, CrewAgent,
   Activity, ActivityKind, AiInfo, OpsState, AttendeeStats, Report, Issue, IssueEvent, Notify, Proposal, TalkMessage, Team, Utterance, Device, EventInfo, Incident, Me, Modality, Observation, ObservationPayload,
   Participant, Snapshot, Task, Zone,
 } from '../shared/contracts.ts';
 import { q } from './db.ts';
+import { presetInfoMark, presetKnowledge } from './eventInfo.ts';
 import { eventChannel, publish } from './sse.ts';
 import { reportsState } from './reports.ts';
 import { crewState } from './crew.ts';
@@ -128,9 +129,23 @@ export function toMe(p: ParticipantRow, deviceId?: string | null): Me {
 
 const SNAPSHOT_INCIDENT_WINDOW_MS = 6 * 3600_000;
 
-/** Organizer-provided context for assistants (run-of-show, FAQ, contacts). '' when none. */
+/** What assistants know about the event: the organizer's text (run-of-show, FAQ, contacts) plus the preset venue's event info.
+ *  An event that never had knowledge adopts the preset info (so organizers see and edit it in Settings); otherwise the preset
+ *  info is appended unless the organizer's text already contains it. '' when none. */
 export function getKnowledge(eventId: string): string {
-  return q.get<{ knowledge: string | null }>('SELECT knowledge FROM events WHERE id = ?', eventId)?.knowledge ?? '';
+  const row = q.get<{ knowledge: string | null; knowledge_updated_at: number | null; map_json: string | null }>(
+    'SELECT knowledge, knowledge_updated_at, map_json FROM events WHERE id = ?', eventId);
+  const own = row?.knowledge?.trim() ?? '';
+  let presetId: string | null = null;
+  try { presetId = row?.map_json ? ((JSON.parse(row.map_json) as { presetId?: string }).presetId ?? null) : null; } catch { /* no preset */ }
+  const info = presetKnowledge(presetId);
+  if (!info) return own;
+  if (!own && row?.knowledge_updated_at == null) {
+    q.run('UPDATE events SET knowledge = ?, knowledge_updated_at = ? WHERE id = ?', info, Date.now(), eventId);
+    return info;
+  }
+  const mark = presetInfoMark(presetId!);
+  return mark && own.includes(mark) ? own : [own, info].filter(Boolean).join('\n\n');
 }
 
 export function attendeeStats(eventId: string): AttendeeStats {
@@ -140,7 +155,51 @@ export function attendeeStats(eventId: string): AttendeeStats {
   return { count, messages, reports };
 }
 
+/** Secret for staff/camera/scribe join links (`&k=`). It is not on the attendee poster and only organizers see it. */
+export function joinKeyFor(ev: { admin_key: string }): string {
+  return createHash('sha256').update(`${ev.admin_key}:join`).digest('base64url').slice(0, 12);
+}
+
+/** Camera/scribe phones (no login) get a device view: their own data, not HQ radio, reports, people or agent prompts. */
+function deviceView(snap: Snapshot): Snapshot {
+  const mine = new Set(snap.devices.filter((d) => d.participantId === snap.me.participantId).map((d) => d.id));
+  const utterances = snap.utterances.filter((u) => mine.has(u.deviceId) || u.participantId === snap.me.participantId);
+  const keys = new Set(utterances.flatMap((u) => u.issueKeys ?? []));
+  const issues = snap.issues.filter((i) => keys.has(i.key));
+  const people = new Set([snap.me.participantId, ...issues.map((i) => i.assigneeId).filter(Boolean) as string[]]);
+  return {
+    ...snap,
+    participants: snap.participants.filter((p) => people.has(p.id)),
+    observations: snap.observations.filter((o) => mine.has(o.deviceId)),
+    activity: [], utterances, issues, issueEvents: [], proposals: [], messages: [], reports: [], crewPosts: [],
+    crew: snap.crew.map((a) => ({ ...a, instructions: '' })),
+  };
+}
+
+/** SSE filter for a camera/scribe client (same rules as deviceView). Returns undefined to skip a frame. */
+export function deviceFrameFilter(participantId: string, eventId: string) {
+  const mine = new Set(q.all<{ id: string }>('SELECT id FROM devices WHERE event_id = ? AND participant_id = ?', eventId, participantId).map((d) => d.id));
+  const HIDDEN = new Set(['message', 'notify', 'report', 'proposal', 'issue_event', 'agent_post', 'activity']);
+  return (event: string, data: unknown): unknown => {
+    if (HIDDEN.has(event)) return undefined;
+    const d = data as { id?: string; deviceId?: string; participantId?: string };
+    if (event === 'device' && d.participantId === participantId && d.id) mine.add(d.id);
+    if (event === 'participant') return d.id === participantId ? data : undefined;
+    if (event === 'observation') return d.deviceId && mine.has(d.deviceId) ? data : undefined;
+    if (event === 'utterance') return (d.deviceId && mine.has(d.deviceId)) || d.participantId === participantId ? data : undefined;
+    if (event === 'agent') return { ...(data as CrewAgent), instructions: '' };
+    return data;
+  };
+}
+
 export function buildSnapshot(eventId: string, me: Me, ai: AiInfo, ops: OpsState): Snapshot {
+  const snap = buildFullSnapshot(eventId, me, ai, ops);
+  if (me.role === 'camera') return deviceView(snap);
+  if (me.role === 'admin') return { ...snap, joinKey: joinKeyFor(getEvent(eventId)!) };
+  return snap;
+}
+
+function buildFullSnapshot(eventId: string, me: Me, ai: AiInfo, ops: OpsState): Snapshot {
   const ev = getEvent(eventId)!;
   const since = Date.now() - SNAPSHOT_INCIDENT_WINDOW_MS;
   const incidents = q.all<IncidentRow>(
@@ -173,7 +232,7 @@ export type Frame =
   | ['observation', Observation] | ['activity', Activity] | ['zone_removed', { id: string }]
   | ['team', Team] | ['team_removed', { id: string }] | ['issue', Issue] | ['issue_event', IssueEvent] | ['proposal', Proposal]
   | ['utterance', Utterance] | ['message', TalkMessage] | ['notify', Notify] | ['report', Report] | ['event', EventInfo]
-  | ['agent', CrewAgent] | ['agent_post', AgentPost];
+  | ['agent', CrewAgent] | ['agent_post', AgentPost] | ['agent_removed', { id: string }];
 
 export function publishAll(eventId: string, frames: Frame[]) {
   const ch = eventChannel(eventId);

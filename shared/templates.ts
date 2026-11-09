@@ -2,12 +2,14 @@
 import type { VenueTemplate } from './contracts.ts';
 
 const rect = (x: number, y: number, w: number, h: number): Array<[number, number]> => [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+/** A box on a camera's own view (normalized 0..1). */
+const box = (x0: number, y0: number, x1: number, y1: number): Array<[number, number]> => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
 
 export const TEMPLATES: VenueTemplate[] = [
   {
     id: 'startup-branch',
-    name: 'Startup Branch · SKKU Hackathon',
-    description: 'The real venue: floor plan, 8 zones, teams and a camera + scribe install plan.',
+    name: 'Startup Branch · c0mpiled-17 Seoul',
+    description: 'The real venue: floor plan, 8 zones, teams and a stage setup — two cameras, one scribe, the attendee QR.',
     map: { imageUrl: '/presets/startup-branch.png', thumbUrl: '/presets/startup-branch-thumb.png', width: 2800, height: 2400, kind: 'floorplan', grid: { cols: 28, rows: 24 } },
     zones: [
       { name: 'Tiered Seating', polygon: rect(140, 140, 2520, 460), zoneType: 'stage' },
@@ -25,54 +27,28 @@ export const TEMPLATES: VenueTemplate[] = [
       { name: 'Concierge', role: 'concierge', team: 'Hospitality' },
     ],
     install: [
+      // Stage presentation setup: two cameras + one scribe, plus the attendee QR on the front screen.
       {
         id: 'cam-seating', kind: 'camera', label: 'Seating & stage', position: [1400, 170], facing: 180, fov: 90, range: 720,
         zones: ['Tiered Seating', 'Stage'], primaryZone: 'Tiered Seating', persona: 'safety_sentinel', agentName: 'Stage Sentinel', team: 'Safety',
         mount: 'Clamp on the top railing, centered', height: 'Top row (~3 m)',
-        tips: ['Look down toward the stage so the camera sees backs of heads, not faces', 'Keep the stage lights out of frame', 'Calibrate two regions: Tiered Seating and Stage'],
+        tips: ['Room overview for the big screen: the audience and the stage in one frame', 'Look down toward the stage so it sees backs of heads, not faces', 'Regions are preset: seats in the lower part of the view, the stage at the top'],
+        regions: [{ zone: 'Tiered Seating', polygon: box(0, 0.42, 1, 1) }, { zone: 'Stage', polygon: box(0, 0, 1, 0.42) }],
       },
       {
-        id: 'cam-lounges', kind: 'camera', label: 'Lounges overview', position: [1400, 1560], facing: 0, fov: 110, range: 760,
-        zones: ['Lounge A', 'Lounge B', 'Lounge C'], primaryZone: 'Lounge B', persona: 'crowd_analyst', agentName: 'Lounge Analyst', team: 'HQ',
-        mount: 'Phone clamp on the walkway pillar', height: '2.2–2.5 m',
-        tips: ['Use the widest lens and tilt down about 25°', 'Calibrate three regions after mounting: Lounge A, B and C', 'Table tops should be visible — seats free is read from them'],
+        id: 'cam-stage', kind: 'camera', label: 'Stage demo spot', position: [2580, 700], facing: 270, fov: 70, range: 1000,
+        zones: ['Stage'], primaryZone: 'Stage', persona: 'queue_watcher', agentName: 'Stage Watch', team: 'Stage',
+        mount: 'Small tripod at stage right, pointing across the stage', height: '1.2–1.5 m',
+        tips: ['Frame the open floor in front of the podium — live demos happen there', 'Keep the projector screen out of frame', 'Plug in a charger: the screen stays on while it watches'],
       },
       {
-        id: 'cam-entrance', kind: 'camera', label: 'Entrance queue', position: [2270, 1700], facing: 262, fov: 50, range: 820,
-        zones: ['Entrance', 'Entrance Lounge'], primaryZone: 'Entrance', persona: 'queue_watcher', agentName: 'Entrance Watch', team: 'Registration',
-        mount: 'Tripod or wall clamp in the door corner', height: '2.0–2.3 m',
-        tips: ['Point along the queue, not into the doorway glare', 'Feet must be visible — counting uses the floor', 'Calibrate Entrance and Entrance Lounge as two regions'],
-      },
-      {
-        id: 'cam-coffee', kind: 'camera', label: 'Coffee line', position: [2200, 1950], facing: 205, fov: 85, range: 340,
-        zones: ['Coffee Corner'], primaryZone: 'Coffee Corner', persona: 'queue_watcher', agentName: 'Coffee Watch', team: 'Hospitality',
-        mount: 'Shelf or small tripod facing the counter', height: '1.8–2.0 m',
-        tips: ['Frame the counter and the line in front of it', 'Keep the cup stack in view so restocks get flagged'],
-      },
-      {
-        id: 'scribe-hq', kind: 'scribe', label: 'HQ huddle', position: [290, 1180], facing: 0, fov: 0, range: 0,
-        zones: [], primaryZone: null, persona: 'meeting_secretary', agentName: 'HQ Secretary', team: 'HQ',
-        mount: 'Flat or on a stand, center of the HQ table', height: 'Table level',
-        tips: ['Center of the table, about 1 m from the speakers', 'Away from the coffee machine and speakers', 'Announce that the meeting is transcribed — audio is never stored'],
-      },
-      {
-        id: 'scribe-stage', kind: 'scribe', label: 'Stage desk (optional)', position: [2440, 690], facing: 0, fov: 0, range: 0,
+        id: 'scribe-stage', kind: 'scribe', label: 'Stage desk', position: [1400, 760], facing: 0, fov: 0, range: 0,
         zones: [], primaryZone: null, persona: 'meeting_secretary', agentName: 'Stage Desk Scribe', team: 'Stage',
-        mount: 'On the MC / AV desk', height: 'Desk level',
-        tips: ['Captures run-of-show changes the MC announces', 'Point the mic toward the MC, away from the PA speakers'],
+        mount: 'On the podium or the stage desk, mic toward the speaker', height: 'Desk level',
+        tips: ['Within about 1 m of whoever is speaking', 'Korean, English or both — transcribed as spoken', 'Audio is never stored, only the transcript'],
       },
-      { id: 'poster-entrance', kind: 'poster', label: 'Attendee chat · Entrance', position: [1830, 1800], facing: 0, fov: 0, range: 0, zones: ['Entrance'], primaryZone: 'Entrance', persona: null,
-        mount: 'A4 poster beside the door', height: 'Eye level', tips: ['First thing attendees see — "Ask us anything"'] },
-      { id: 'poster-lounge-a', kind: 'poster', label: 'Attendee chat · Lounge A', position: [980, 930], facing: 0, fov: 0, range: 0, zones: ['Lounge A'], primaryZone: 'Lounge A', persona: null,
-        mount: 'Table tent', height: 'Table', tips: ['One per table cluster'] },
-      { id: 'poster-lounge-b', kind: 'poster', label: 'Attendee chat · Lounge B', position: [1660, 930], facing: 0, fov: 0, range: 0, zones: ['Lounge B'], primaryZone: 'Lounge B', persona: null,
-        mount: 'Table tent', height: 'Table', tips: ['One per table cluster'] },
-      { id: 'poster-lounge-c', kind: 'poster', label: 'Attendee chat · Lounge C', position: [2240, 930], facing: 0, fov: 0, range: 0, zones: ['Lounge C'], primaryZone: 'Lounge C', persona: null,
-        mount: 'Table tent', height: 'Table', tips: ['One per table cluster'] },
-      { id: 'poster-coffee', kind: 'poster', label: 'Attendee chat · Coffee Corner', position: [2030, 2240], facing: 0, fov: 0, range: 0, zones: ['Coffee Corner'], primaryZone: 'Coffee Corner', persona: null,
-        mount: 'On the counter', height: 'Counter', tips: ['"Out of something? Tell us here"'] },
-      { id: 'poster-stage', kind: 'poster', label: 'Attendee chat · Stage side', position: [2590, 770], facing: 0, fov: 0, range: 0, zones: ['Stage'], primaryZone: 'Stage', persona: null,
-        mount: 'A4 poster on the stage side wall', height: 'Eye level', tips: ['Shown during breaks between talks'] },
+      { id: 'poster-screen', kind: 'poster', label: 'Front screen · attendee QR', position: [1400, 805], facing: 0, fov: 0, range: 0, zones: ['Tiered Seating'], primaryZone: 'Tiered Seating', persona: null,
+        mount: 'Full screen on the projector before and during the demo', height: 'Projector', tips: ['Attendees scan it and ask in Korean or English — no app, no sign-up'] },
     ],
   },
   {

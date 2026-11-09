@@ -57,14 +57,14 @@ ok(r.json.invites[0].uses === 2, `uses counted once per person (Noa + Mina → $
 // join-by-code
 const code = jar();
 await call(code, 'POST', '/api/auth/signup', { username: `leo-${sfx}`, password: pw(), displayName: 'Leo' });
-r = await call(code, 'POST', '/api/events/join-by-code', { code: ev.joinCode.toLowerCase(), as: 'staff' });
+r = await call(code, 'POST', '/api/events/join-by-code', { code: ev.joinCode.toLowerCase(), key: ev.joinKey, as: 'staff' });
 ok(r.status === 200 && r.json.role === 'staff', 'join by code (lowercase ok)');
 r = await call(code, 'POST', '/api/events/join-by-code', { code: 'ZZZZZZ', as: 'staff' });
 ok(r.status === 404, `unknown code → 404 (${r.status})`);
 const codeGuest = jar();
-r = await call(codeGuest, 'POST', '/api/events/join-by-code', { code: ev.joinCode, as: 'staff' });
+r = await call(codeGuest, 'POST', '/api/events/join-by-code', { code: ev.joinCode, key: ev.joinKey, as: 'staff' });
 ok(r.status === 400 && r.json.error.code === 'NEEDS_NAME', 'signed-out code join asks for a name');
-r = await call(codeGuest, 'POST', '/api/events/join-by-code', { code: ev.joinCode, as: 'staff', name: 'Kai' });
+r = await call(codeGuest, 'POST', '/api/events/join-by-code', { code: ev.joinCode, key: ev.joinKey, as: 'staff', name: 'Kai' });
 ok(r.status === 200 && r.json.role === 'staff', 'join by code with just a name (no account)');
 r = await call(codeGuest, 'GET', `/api/events/${ev.id}/snapshot`);
 ok(r.status === 200 && r.json.me.displayName === 'Kai', 'name-only code join opens the event');

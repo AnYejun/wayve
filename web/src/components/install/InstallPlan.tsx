@@ -14,6 +14,7 @@ import { useNow } from '@/lib/time';
 import { spring } from '@/design/motion';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { withKey } from '@/lib/links';
 import { slotUrl } from './api';
 
 type Filter = 'all' | 'camera' | 'scribe' | 'poster';
@@ -132,7 +133,7 @@ export function InstallPlan({ snap, eventId }: { snap: Snapshot; eventId: string
         <div className="flex max-h-[min(78vh,880px)] flex-col gap-2.5 overflow-y-auto pr-0.5">
           {shown.map((s) => (
             <SlotCard key={s.id} slot={s} index={slots.indexOf(s) + 1} active={sel === s.id} onSelect={() => setSel(s.id)}
-              device={deviceFor(s, snap.devices)} url={slotUrl(origin, snap.event.joinCode, s)} now={now} />
+              device={deviceFor(s, snap.devices)} url={slotUrl(origin, snap.event.joinCode, s, snap.joinKey)} now={now} />
           ))}
         </div>
       </div>
@@ -147,9 +148,18 @@ export function InstallPlan({ snap, eventId }: { snap: Snapshot; eventId: string
               <div className="k">{s.zones.length ? `Watches: ${s.zones.join(', ')} · ` : ''}{s.mount} · {s.height}</div>
               <ul>{s.tips.map((t) => <li key={t}>{t}</li>)}</ul>
             </div>
-            <div className="qr"><QRCodeSVG value={slotUrl(origin, snap.event.joinCode, s)} size={112} level="M" marginSize={1} /><div>{s.kind === 'poster' ? 'Attendee chat' : 'Scan to set up'}</div></div>
+            <div className="qr"><QRCodeSVG value={slotUrl(origin, snap.event.joinCode, s, snap.joinKey)} size={112} level="M" marginSize={1} /><div>{s.kind === 'poster' ? 'Attendee chat' : 'Scan to set up'}</div></div>
           </div>
         ))}
+        <div className="card">
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="n">Staff · radio, tasks, assistant</div>
+            <div className="t">Join as staff</div>
+            <div className="k">Scan before the event starts — just a name, no account. Keep this sheet with the team (it carries the staff key).</div>
+            <ul><li>Korean or English, by voice or chat</li><li>New tasks arrive as cards: swipe right to take, left to pass</li></ul>
+          </div>
+          <div className="qr"><QRCodeSVG value={withKey(`${origin}/j/${snap.event.joinCode}?as=staff`, snap.joinKey)} size={112} level="M" marginSize={1} /><div>Staff sign-up</div></div>
+        </div>
       </div>
     </section>
   );

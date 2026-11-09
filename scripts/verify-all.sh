@@ -10,6 +10,7 @@ step typecheck; npx tsc -p tsconfig.json --noEmit || fail=1
 step build; npm run build >/dev/null 2>&1 && echo "built" || { echo "BUILD FAILED"; fail=1; }
 step "unit tests"; npm test 2>&1 | grep -E "^ℹ (pass|fail)" || fail=1
 step "local server :$PORT"
+lsof -ti tcp:$PORT | xargs kill 2>/dev/null; sleep 0.3
 # Key: from a local secrets vault when present, else OPENAI_API_KEY from the environment (never printed).
 VAULT="$HOME/.claude/skills/vault/bin/vault"
 if [ -x "$VAULT" ]; then RUN=("$VAULT" use openai-api-key --); else RUN=(); fi
@@ -22,6 +23,7 @@ for s in scripts/smoke*.mjs; do
   bad=$(printf '%s\n' "$out" | grep -c '✗')
   if [ $code -ne 0 ] || [ "$bad" -gt 0 ]; then echo "✗ $name (exit $code, $bad failed)"; printf '%s\n' "$out" | grep '✗' | head -5; fail=1; else echo "✓ $name"; fi
 done
-kill $SRV 2>/dev/null; wait $SRV 2>/dev/null; rm -rf "$DIR" "$DIR.log"
+kill $SRV 2>/dev/null; lsof -ti tcp:$PORT | xargs kill 2>/dev/null; wait $SRV 2>/dev/null
+if [ $fail -eq 0 ]; then rm -rf "$DIR" "$DIR.log"; else rm -rf "$DIR"; echo "server log kept: $DIR.log"; fi
 [ $fail -eq 0 ] && echo -e "\nALL GREEN" || echo -e "\nNOT READY"
 exit $fail

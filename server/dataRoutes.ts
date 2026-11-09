@@ -6,7 +6,7 @@ import { DATA_TABLES, RADIO_AUDIO_TTL_MS, type DataPage, type DataTable, type Ev
 import { config } from './config.ts';
 import { q } from './db.ts';
 import { HttpErr, h, notFound, parse, requireRole } from './routes.ts';
-import { getEvent } from './world.ts';
+import { getEvent, getKnowledge } from './world.ts';
 
 type Row = Record<string, string | number | null>;
 
@@ -167,8 +167,9 @@ export function dataRouter() {
     const ev = getEvent(String(req.params.eventId));
     if (!ev) throw notFound('Event not found.');
     requireRole(req, ev.id, 'staff');
-    const row = q.get<{ knowledge: string | null; knowledge_updated_at: number | null }>('SELECT knowledge, knowledge_updated_at FROM events WHERE id = ?', ev.id);
-    const body: EventKnowledge = { text: row?.knowledge ?? '', updatedAt: row?.knowledge_updated_at ?? null };
+    const text = getKnowledge(ev.id);
+    const row = q.get<{ knowledge_updated_at: number | null }>('SELECT knowledge_updated_at FROM events WHERE id = ?', ev.id);
+    const body: EventKnowledge = { text, updatedAt: row?.knowledge_updated_at ?? null };
     res.json(body);
   }));
   r.put('/events/:eventId/knowledge', express.json({ limit: '128kb' }), h((req, res) => {

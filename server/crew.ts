@@ -184,22 +184,35 @@ type Cand = ParticipantRow & { zoneId: string | null; seen: number; busy: number
 function dispatchTick(now: number) {
   const dispatchers = q.all<AgentRow>(`SELECT * FROM agents WHERE role = 'dispatcher' AND active = 1 AND deleted_at IS NULL`);
   for (const a of dispatchers) {
-    const open = q.all<IssueRow>(`SELECT * FROM issues WHERE event_id = ? AND status = 'open' AND assignee_id IS NULL AND kind IN ('task','problem') AND created_at <= ? ORDER BY priority, created_at LIMIT 6`,
-      a.event_id, now - DISPATCH_AFTER_MS);
+    // Skips run in SQL before the LIMIT, so a few issues waiting on a human never starve new ones. Already waiting on a decision
+    // (or suggested before a restart) → don't repeat ourselves. A decline (the assignee passed, issue_events: assignee_id
+    // from_raw = actor_id, to_raw NULL) makes the issue eligible again at once, past the grace period and the 5-minute memo.
+    const open = q.all<IssueRow & { declined_at: number | null }>(
+      `WITH dec AS (SELECT issue_id, MAX(at) AS at FROM issue_events WHERE event_id = ? AND field = 'assignee_id' AND to_raw IS NULL AND actor_id = from_raw GROUP BY issue_id)
+       SELECT issues.*, dec.at AS declined_at FROM issues LEFT JOIN dec ON dec.issue_id = issues.id
+       WHERE issues.event_id = ? AND issues.status = 'open' AND issues.assignee_id IS NULL AND issues.kind IN ('task','problem')
+         AND (issues.created_at <= ? OR dec.at IS NOT NULL)
+         AND NOT EXISTS (SELECT 1 FROM proposals pr WHERE pr.issue_id = issues.id AND pr.status = 'pending')
+         AND NOT EXISTS (SELECT 1 FROM agent_posts ap WHERE ap.issue_id = issues.id AND ap.agent_id = ? AND ap.at > ? AND ap.at > COALESCE(dec.at, 0))
+       ORDER BY issues.priority, issues.created_at LIMIT 6`,
+      a.event_id, a.event_id, now - DISPATCH_AFTER_MS, a.id, now - DISPATCH_GAP_MS);
     let acted = 0;
     for (const issue of open) {
       if (acted >= 2) break;
-      if (now - (lastDispatch.get(issue.id) ?? 0) < DISPATCH_GAP_MS) continue;
-      // Already waiting on a human decision (or suggested before a restart) → don't repeat ourselves.
-      if (q.get(`SELECT 1 FROM proposals WHERE issue_id = ? AND status = 'pending' LIMIT 1`, issue.id)) { lastDispatch.set(issue.id, now); continue; }
-      if (q.get(`SELECT 1 FROM agent_posts WHERE agent_id = ? AND issue_id = ? AND at > ? LIMIT 1`, a.id, issue.id, now - DISPATCH_GAP_MS)) { lastDispatch.set(issue.id, now); continue; }
+      const last = lastDispatch.get(issue.id) ?? 0;
+      if (now - last < DISPATCH_GAP_MS && !(issue.declined_at && issue.declined_at > last)) continue;
+      // Never re-offer to someone who declined this issue, or whom a human rejected as the suggested owner.
+      const declined = new Set(q.all<{ id: string }>(
+        `SELECT DISTINCT from_raw AS id FROM issue_events WHERE issue_id = ? AND field = 'assignee_id' AND to_raw IS NULL AND actor_id = from_raw`, issue.id).map((r) => r.id));
+      const rejected = new Set(q.all<{ name: string | null }>(
+        `SELECT DISTINCT json_extract(action_json, '$.assignee') AS name FROM proposals WHERE issue_id = ? AND status = 'rejected'`, issue.id).map((r) => r.name).filter(Boolean));
       const cands = q.all<Cand>(
         `SELECT p.*, d.zone_id AS zoneId, MAX(p.last_seen_at, COALESCE(d.last_seen_at, 0)) AS seen,
            (SELECT COUNT(*) FROM issues i WHERE i.assignee_id = p.id AND i.status = 'in_progress') AS busy,
            (SELECT COUNT(*) FROM issues i WHERE i.assignee_id = p.id AND i.status != 'done') AS load
          FROM participants p LEFT JOIN devices d ON d.participant_id = p.id AND d.device_type = 'reporter'
-         WHERE p.event_id = ? AND p.role = 'staff'`, a.event_id);
-      if (!cands.length) continue;
+         WHERE p.event_id = ? AND p.role = 'staff'`, a.event_id).filter((c) => !declined.has(c.id) && !rejected.has(c.display_name));
+      if (!cands.length) { lastDispatch.set(issue.id, now); continue; }
       const online = (c: Cand) => now - c.seen < DEVICE_OFFLINE_MS * 4; // staff phones sleep; 100 s grace
       const score = (c: Cand) => [Number(!!issue.team_id && c.team_id === issue.team_id), Number(!!issue.zone_id && c.zoneId === issue.zone_id), Number(!c.busy), Number(online(c)), -c.load];
       cands.sort((x, y) => { const sx = score(x), sy = score(y); for (let i = 0; i < sx.length; i++) if (sx[i] !== sy[i]) return sy[i] - sx[i]; return 0; });
@@ -254,6 +267,17 @@ function verifyTick(now: number) {
     });
     publishAll(issue.event_id, frames);
   }
+}
+
+let nudge: ReturnType<typeof setTimeout> | null = null;
+/** Run the dispatcher soon (after a decline) instead of waiting for the next tick. */
+export function nudgeDispatch(ms = 800) {
+  if (nudge) return;
+  nudge = setTimeout(() => {
+    nudge = null;
+    try { dispatchTick(Date.now()); } catch (e) { log.warn('crew.dispatch_failed', { err: (e as Error).message }); }
+  }, ms);
+  nudge.unref?.();
 }
 
 export function startCrew() {

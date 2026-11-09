@@ -81,6 +81,15 @@ export async function respond(opts: {
 
 export const clamp01 = (n: number) => (Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0);
 
+/** The language to answer in, decided in code (models drift toward Korean from names or venue context): Korean when at
+ *  least a fifth of the letters are Hangul (Korean with English terms mixed in stays Korean), else English. */
+export function replyLanguage(text: string): 'Korean' | 'English' {
+  const letters = (text.match(/[A-Za-z\u3131-\u318E\uAC00-\uD7A3]/g) ?? []).length;
+  const hangul = (text.match(/[\u3131-\u318E\uAC00-\uD7A3]/g) ?? []).length;
+  return letters && hangul / letters >= 0.2 ? 'Korean' : 'English';
+}
+const LANG_NOTE = (lang: 'Korean' | 'English') => (lang === 'Korean' ? 'natural, polite Korean (해요체)' : 'English');
+
 // ── Vision: one frame → VisionPayload ───────────────────────────────────────────────────────────────────────────────
 
 const VISION_SCHEMA = {
@@ -98,11 +107,11 @@ const VISION_SCHEMA = {
         properties: {
           type: { type: 'string', enum: [...HAZARD_TYPES] },
           confidence: { type: 'number', description: '0..1 calibrated' },
-          detail: { type: 'string', description: 'Korean, under 40 characters, what and where in the frame' },
+          detail: { type: 'string', description: 'English, under 40 characters, what and where in the frame' },
         },
       },
     },
-    summary: { type: 'string', description: 'one short factual Korean sentence about the scene' },
+    summary: { type: 'string', description: 'one short factual English sentence about the scene' },
     confidence: { type: 'number', description: '0..1 certainty of the crowd assessment' },
   },
 } as const;
@@ -166,7 +175,7 @@ const REPORT_SCHEMA = {
   properties: {
     issue_type: { type: 'string', enum: [...INCIDENT_TYPES, 'none'] },
     crowd_level: { type: ['string', 'null'], enum: [...CROWD_LEVELS, null] },
-    summary: { type: 'string', description: 'one short Korean sentence' },
+    summary: { type: 'string', description: 'one short factual English sentence' },
     zone_hint: { type: ['string', 'null'], description: 'the zone from the list the report refers to, copied exactly from the list; map misspelled or misheard names (speech transcripts) to the closest-sounding zone; null if no zone is mentioned' },
     confidence: { type: 'number', description: '0..1 how clearly the report states the issue' },
   },
@@ -206,6 +215,29 @@ summary: one short factual English sentence. confidence: 0..1.`,
 // ── Speech-to-text (audio is transcribed in memory and discarded) ───────────────────────────────────────────────────
 
 /** `vocabulary` = zone names, passed as a prompt so the speech model spells them right. */
+/** Speech models fill silence with their own prompt (or stock phrases like "Thanks for watching"). Those come back as ''
+ *  so a silent or accidental clip reads as "no speech" everywhere: assistant, radio, scribe and voice reports. */
+const ECHO_MARKERS = /transcribe verbatim|keep each word in the language|common terms:|korean terms:|names and places:|event operations radio and meetings|일반\s*용어|한국어\s*용어|이름\s*및\s*장소|이벤트\s*운영\s*라디오|그대로\s*전사/i;
+const SILENCE_PHRASES = [/^(thank you|thanks)( so much| very much)?( for watching)?[.!]*$/i, /thanks? for watching/i, /^(you|bye)[.!]*$/i,
+  /시청(해)?\s*주셔서\s*감사/, /구독(과|이랑)?\s*좋아요/, /MBC\s*뉴스/, /^[\s.…·-]*$/];
+export function cleanTranscript(raw: string, prompt: string): string {
+  const t = raw.trim();
+  if (!t || ECHO_MARKERS.test(t) || SILENCE_PHRASES.some((re) => re.test(t))) return '';
+  // A partial echo: almost every word is straight from the prompt's vocabulary list ("Stage, Lounge A, Lounge B, …").
+  const split = (s: string) => s.toLowerCase().split(/[\s,.;:!?()"'“”]+/).filter((w) => w.length > 1);
+  const words = split(t);
+  if (words.length >= 6) {
+    const vocab = new Set(split(prompt));
+    if (words.filter((w) => vocab.has(w)).length / words.length >= 0.85) return '';
+  }
+  // The glossary read back as a list (sometimes translated): most comma-separated pieces are exactly glossary terms.
+  const norm = (s: string) => s.toLowerCase().replace(/[.!?。]+$/u, '').trim();
+  const terms = new Set(prompt.split(/[,:().]/).map(norm).filter(Boolean));
+  const pieces = t.split(/[,、·]/).map(norm).filter(Boolean);
+  if (pieces.length >= 6 && pieces.filter((x) => terms.has(x)).length / pieces.length >= 0.5) return '';
+  return t;
+}
+
 export async function transcribe(audio: Buffer, mime: string, vocabulary: string[] = []): Promise<{ text: string; model: string; latencyMs: number }> {
   const model = config.OPENAI_TRANSCRIBE_MODEL;
   const ext = /mp4|m4a|aac/.test(mime) ? 'mp4' : /mpeg|mp3/.test(mime) ? 'mp3' : /wav/.test(mime) ? 'wav' : /ogg/.test(mime) ? 'ogg' : 'webm';
@@ -214,9 +246,11 @@ export async function transcribe(audio: Buffer, mime: string, vocabulary: string
     const file = await toFile(audio, `report.${ext}`, { type: mime.split(';')[0] });
     // Language is auto-detected (no `language` param): Korean, English and Korean–English code-switching are transcribed
     // verbatim in the language spoken. The prompt only biases spelling of names/places and states the expected languages.
-    const prompt = `Event operations radio and meetings, in Korean, English, or a mix of both (transcribe verbatim, keep each word in the language spoken). Common terms: name badge, lanyard, wristband, registration, check-in, extension cord, power strip, Wi-Fi, mic, projector, queue, spill, first aid.${vocabulary.length ? ` Names and places: ${vocabulary.join(', ')}` : ''}`;
+    const prompt = `Event operations radio and meetings, in Korean, English, or a mix of both (transcribe verbatim, keep each word in the language spoken). Common terms: name badge, lanyard, wristband, registration, check-in, extension cord, power strip, Wi-Fi, mic, projector, queue, spill, first aid. Korean terms: 명찰, 목걸이, 손목밴드, 등록, 접수, 체크인, 연장선, 멀티탭, 와이파이, 마이크, 프로젝터, 대기줄, 쏟아짐, 응급, 무대, 계단석, 관객석, 라운지, 입구, 커피 코너, 스타트업 브랜치, 코엑스, 심사, 제출, 데모, 해커톤.${vocabulary.length ? ` Names and places: ${vocabulary.join(', ')}` : ''}`;
     const r = await client!.audio.transcriptions.create({ file, model, ...(prompt ? { prompt } : {}) }, { timeout: config.TEXT_TIMEOUT_MS });
-    return { text: (r.text ?? '').trim(), model, latencyMs: Math.round(performance.now() - t0) };
+    const text = cleanTranscript(r.text ?? '', prompt);
+    if (!text && (r.text ?? '').trim()) log.info('ai.transcript_dropped', { chars: (r.text ?? '').trim().length });
+    return { text, model, latencyMs: Math.round(performance.now() - t0) };
   }).catch((e) => {
     if (e instanceof AiError) throw e;
     log.error('ai.transcribe_failed', { model, status: (e as { status?: number }).status, msg: String((e as Error).message).slice(0, 200) });
@@ -253,10 +287,10 @@ export async function askAssistant(question: string, context: string): Promise<{
   const model = config.OPENAI_TEXT_MODEL;
   const { text } = await respond({
     model,
-    instructions: `You are WAYVE's assistant for one staff member at a live event. Answer in English, at most 4 short sentences.
+    instructions: `You are WAYVE's assistant for one staff member at a live event. Answer in the language of the question (Korean → natural, polite Korean; English → English), at most 4 short sentences.
 Use ONLY the venue state below (it is current). If the answer is not in it, say you don't know. You cannot take actions; suggest what the person could do.`,
-    content: [{ type: 'input_text', text: `${context}\n\nQuestion: ${question.slice(0, 500)}` }],
-    maxOutputTokens: 400,
+    content: [{ type: 'input_text', text: `${context}\n\nQuestion: ${question.slice(0, 500)}\n\nAnswer in ${LANG_NOTE(replyLanguage(question))}.` }],
+    maxOutputTokens: 600,
     timeoutMs: config.TEXT_TIMEOUT_MS,
   });
   return { answer: text.trim().slice(0, 1200), model };
@@ -271,7 +305,7 @@ export function safeJson(text: string): unknown {
 const ATTENDEE_SCHEMA = {
   type: 'object', additionalProperties: false, required: ['reply', 'intent', 'ticket_title', 'urgent', 'report'],
   properties: {
-    reply: { type: 'string', description: 'answer to the attendee in English (reply in Korean only if the attendee wrote Korean), at most 3 short sentences' },
+    reply: { type: 'string', description: "answer to the attendee in the language of their latest message (Korean → natural, polite Korean; English → English), at most 3 short sentences" },
     intent: { type: 'string', enum: ['question', 'request', 'problem', 'other'], description: 'question = wants information; request = asks staff to bring/do/fix something for them (supplies, help, a service); problem = reports an on-site situation (crowding, queue, spill, hazard, broken thing); other = small talk / feedback' },
     ticket_title: { type: 'string', description: 'for request/problem: a short imperative task title for staff, ≤ 60 chars, with the place if known (e.g. "Bring an extension cord to table 12 · Lounge B", "Restock cups at the Coffee Corner"); "" otherwise' },
     urgent: { type: 'boolean', description: 'true only for safety/medical emergencies or something blocking many people right now' },
@@ -309,7 +343,8 @@ export async function attendeeChat(message: string, history: Array<{ role: 'user
   const convo = history.slice(-8).map((m) => `${m.role === 'user' ? 'Attendee' : 'Assistant'}: ${m.text}`).join('\n');
   const { text, latencyMs } = await respond({
     model,
-    instructions: `You are the friendly event chatbot for attendees of a live event. Reply in the attendee's language (English by default), at most 3 short sentences, warm and concrete.
+    instructions: `You are the friendly event chatbot for attendees of a live event. Reply in the language of the attendee's latest message — Korean → natural, polite Korean (해요체); English → English; mixed → the main language — at most 3 short sentences, warm and concrete. Keep names as written (zones, Wi-Fi networks, the event name). ticket_title and report.summary are always English: they go to the staff dashboard.
+Answer questions about the event itself (schedule, food, Wi-Fi, directions, rules, submission, judging, prizes, judges) from the event info below. If it is not there, say you don't know and suggest asking a staff member — never guess times, places or passwords.
 You know the CURRENT crowd level of each zone (below, updated live from staff cameras). Use it to answer questions like where it is less crowded. If a zone has no recent observation, say you don't have fresh information about it.
 Never mention staff names, internal incidents, tasks or cameras' identities. Never invent facilities that are not in the zone list.
 If the attendee describes a situation staff should know (crowding, long queue, spill, blocked path, someone hurt, smoke/fire, fight, suspicious item, other problem): set report.is_report = true, classify it, and thank them, saying the operations team has been told. If you cannot tell which zone, set zone_hint null and ask which zone in your reply (the attendee's current zone, if known, counts as the zone).
@@ -317,9 +352,9 @@ For emergencies (fire, someone collapsed, fight) also tell them to move to safet
 REQUESTS: when the attendee asks staff to bring, fix or do something for them ("we need an extension cord at table 12", "can someone bring more cups?", "the Wi-Fi password please"), set intent "request", write ticket_title as a clear task for staff, and reply that you've sent it to the team and they'll see live updates right here in the chat. If it can be answered from the event info (e.g. Wi-Fi, schedule), answer it instead and use intent "question". If the place matters and is unknown, ask where in your reply.
 Problems (situations) use intent "problem" with report filled as described above and a ticket_title too.
 Questions, small talk or feedback that is not about an on-site situation: report.is_report = false, issue_type "none".`,
-    content: [{ type: 'input_text', text: `${context}\n\nConversation so far:\n${convo || '(none)'}\n\nAttendee's new message: """${message.slice(0, 500)}"""` }],
+    content: [{ type: 'input_text', text: `${context}\n\nConversation so far:\n${convo || '(none)'}\n\nAttendee's new message: """${message.slice(0, 500)}"""\n\nWrite "reply" in ${LANG_NOTE(replyLanguage(message))}.` }],
     schema: { name: 'attendee_turn', schema: ATTENDEE_SCHEMA },
-    maxOutputTokens: 500,
+    maxOutputTokens: 1000,
     timeoutMs: config.TEXT_TIMEOUT_MS,
   });
   const parsed = AttendeeZ.safeParse(safeJson(text));
@@ -398,6 +433,7 @@ export async function extractActions(inp: ExtractInput): Promise<{ actions: Arra
     ...(inp.persona ? [`Listener persona (set by the organizers): ${inp.persona.slice(0, 600)}`] : []),
     `Teams: ${inp.teams.join(', ') || 'none'}`,
     `Zones: ${(inp.zones ?? []).join(', ') || 'none'}`,
+    'Korean speech may name places in Korean (무대 stage, 입구 entrance, 계단·계단석·관객석 seating/stairs, 라운지 lounge, 커피 coffee, 등록·접수 registration, 화장실 restrooms): map them to the zone list.',
     `People: ${inp.people.map((p) => `${p.name}${p.team ? ` (${p.team})` : ''}`).join(', ') || 'none'}`,
     'Open / recent issues:',
     ...(inp.issues.length ? inp.issues.map((i) => `- WV-${i.number} [${i.status}] ${i.title} · owner ${i.assignee}${i.team ? ` · ${i.team}` : ''}${i.due ? ` · due ${i.due}` : ''}`) : ['- none']),
@@ -438,7 +474,7 @@ Only act on what the NEW lines explicitly say; older lines are context. Most lin
 const ASK_SCHEMA = {
   type: 'object', additionalProperties: false, required: ['answer', 'issues', 'lines'],
   properties: {
-    answer: { type: 'string', description: 'English, ≤ 5 short sentences or a short list' },
+    answer: { type: 'string', description: 'in the language of the question (Korean or English), ≤ 5 short sentences or a short list' },
     issues: { type: 'array', items: { type: 'integer' }, description: 'WV numbers you relied on' },
     lines: { type: 'array', items: { type: 'string' }, description: 'refs like "U4" of transcript lines you relied on' },
   },
@@ -450,8 +486,8 @@ export async function askOps(question: string, context: string): Promise<{ answe
     model,
     instructions: `You answer questions from event operations staff using ONLY the live tracker state and transcript lines given (they are current).
 Be concrete: name issue keys (WV-12), people, teams, times. If the answer is not in the data, say so plainly. You cannot change anything; suggest who should act.
-Reply in English, short. Cite every issue and transcript line you used.`,
-    content: [{ type: 'input_text', text: `${context}\n\nQuestion: ${question.slice(0, 500)}` }],
+Reply in the language of the question (Korean → Korean, English → English), short; keep issue keys and zone names exactly as written. Cite every issue and transcript line you used.`,
+    content: [{ type: 'input_text', text: `${context}\n\nQuestion: ${question.slice(0, 500)}\n\nAnswer in ${LANG_NOTE(replyLanguage(question))}.` }],
     schema: { name: 'ops_answer', schema: ASK_SCHEMA },
     maxOutputTokens: 700,
     timeoutMs: config.TEXT_TIMEOUT_MS + 5000,

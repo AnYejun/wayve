@@ -58,6 +58,11 @@ export function AskDrawer({ section }: { section: string }) {
     return () => window.removeEventListener(EVT, on);
   }, [asst]);
   useEffect(() => { if (open) setTimeout(() => inputRef.current?.focus(), 120); }, [open]);
+  // Closing the drawer (X, scrim, ⌘K, "Open full view") ends a recording instead of sending it 45 s later.
+  const recRef = useRef(rec); recRef.current = rec;
+  const asstRef = useRef(asst); asstRef.current = asst;
+  useEffect(() => { if (!open) { if (recRef.current.state === 'recording') recRef.current.cancel(); asstRef.current.stop(); } }, [open]);
+  useEffect(() => () => { if (recRef.current.state === 'recording') recRef.current.cancel(); }, []);
   useEffect(() => { if (onAssistantPage) setOpen(false); }, [onAssistantPage]);
   // Keep the newest exchange's question at the top of the view, so its answer (and map) reads from the start.
   useEffect(() => {
@@ -141,7 +146,7 @@ export function AskDrawer({ section }: { section: string }) {
                         ) : (
                           <div>
                             <RevealMarkdown text={t.res.answer} animate={t.id === newestId} onIssue={openIssue} className="text-[14.5px] leading-[23px]" />
-                            <AnswerAttachments res={t.res} snap={snap} compact nav={{ onOpenIssue: (i) => openIssue(i.id), onOpenZone: (id) => go(`map?zone=${id}`) }} />
+                            <AnswerAttachments res={t.res} snap={snap} compact nav={{ onOpenIssue: (i) => openIssue(i.id), onOpenZone: (id) => { setOpen(false); go(`map?zone=${id}`); } }} />
                           </div>
                         )}
                       </motion.li>

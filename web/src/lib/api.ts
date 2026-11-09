@@ -107,9 +107,10 @@ export const API = {
     api<{ zones: Zone[] }>(`/api/events/${eventId}/zones`, { method: 'PUT', body: { zones } }),
 
   // ── v3: field reports ──
-  createReport: (b: { eventId: string; zoneId?: string | null; category: ReportCategory; urgency: Urgency; text?: string | null; photo?: string | null; audio?: string | null; parentReportId?: string | null }) =>
+  createReport: (b: { eventId: string; zoneId?: string | null; hereZoneId?: string | null; category: ReportCategory | 'auto'; urgency: Urgency | 'auto'; text?: string | null; photo?: string | null; photos?: string[] | null; audio?: string | null; parentReportId?: string | null }) =>
     api<{ report: Report; issue: Issue | null }>('/api/reports', { body: b }),
   reports: (eventId: string, mine = false) => api<{ reports: Report[] }>('/api/reports', { query: { eventId, mine: mine ? '1' : null } }),
+  declineIssue: (issueId: string, reason?: string | null) => api<{ issue: Issue }>(`/api/issues/${issueId}/decline`, { body: { reason: reason ?? null } }),
   getReport: (id: string) => api<{ report: Report; issue: Issue | null; related: Report[] }>(`/api/reports/${id}`),
 
   // ── v3: staff assistant ──

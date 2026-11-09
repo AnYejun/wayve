@@ -11,7 +11,7 @@ import { config } from './config.ts';
 import { q, tx } from './db.ts';
 import { currentUser, type UserRow } from './auth.ts';
 import { listTeams } from './ops.ts';
-import { HttpErr, ROLE_RANK, bad, cookieTokens, h, notFound, parse, participantFor, requireRole, setTokens } from './routes.ts';
+import { HttpErr, ROLE_RANK, bad, clientIp, cookieTokens, h, notFound, parse, participantFor, requireJoinKey, requireRole, setTokens } from './routes.ts';
 import {
   addActivity, getDeviceRow, getEvent, newId, publishAll, toDevice, toParticipant,
   type DeviceRow, type EventRow, type Frame, type ParticipantRow,
@@ -225,7 +225,7 @@ export function inviteRouter() {
     if (!user) {
       // QR-only staff: a name is enough. Organizer invites still need an account (they open dashboards).
       if (inv.role !== 'staff') throw new HttpErr(409, 'NEEDS_LOGIN', 'Sign in to join as an organizer.');
-      window(`invite-guest:${req.ip}`, 20);
+      window(`invite-guest:${clientIp(req)}`, 20);
       const name = guestName(req.body);
       const mine = participantFor(req, inv.event_id);
       const st = statusOf(inv);
@@ -234,7 +234,7 @@ export function inviteRouter() {
         throw new HttpErr(410, `INVITE_${st.toUpperCase()}`, `${msg} Ask the organizer for a new link.`);
       }
       const g = tx(() => {
-        const r2 = linkGuestStaff(req, inv.event_id, name, inv.team_id);
+        const r2 = linkGuestStaff(req, inv.event_id, name, st === 'active' ? inv.team_id : null);
         if (r2.created) q.run('UPDATE invites SET uses = uses + 1 WHERE id = ?', inv.id);
         return r2;
       });
@@ -250,6 +250,8 @@ export function inviteRouter() {
       const msg = status === 'revoked' ? 'This invite was revoked.' : status === 'expired' ? 'This invite has expired.' : 'This invite has been used up.';
       throw new HttpErr(410, `INVITE_${status.toUpperCase()}`, `${msg} Ask the organizer for a new link.`);
     }
+    // A revoked/expired/used-up link never changes an existing member's role or team.
+    if (status !== 'active') return res.json({ eventId: inv.event_id, role: already!.role });
     const out = tx(() => {
       const r2 = linkUser(user, inv.event_id, inv.role as InviteRole, inv.team_id);
       if (r2.created) q.run('UPDATE invites SET uses = uses + 1 WHERE id = ?', inv.id);
@@ -269,10 +271,11 @@ export function inviteRouter() {
   // ── one-tap join by event code (signed-in users) ──
   r.post('/events/join-by-code', json, h((req, res) => {
     const user = currentUser(req);
-    const b = parse(z.object({ code: z.string().trim().min(4).max(12), as: z.literal('staff').default('staff'), teamId: z.string().nullish(), name: z.string().trim().max(30).nullish() }), req.body);
-    window(user ? `joincode:${user.id}` : `joincode-guest:${req.ip}`, 10);
+    const b = parse(z.object({ code: z.string().trim().min(4).max(12), as: z.literal('staff').default('staff'), teamId: z.string().nullish(), name: z.string().trim().max(30).nullish(), key: z.string().trim().max(64).nullish() }), req.body);
+    window(user ? `joincode:${user.id}` : `joincode-guest:${clientIp(req)}`, 10);
     const ev = q.get<EventRow>('SELECT * FROM events WHERE join_code = ?', b.code.toUpperCase());
     if (!ev) throw notFound('No event uses that code. Check the 6 characters and try again.');
+    requireJoinKey(req, ev, 'staff', b.key);
     if (!user) {
       // QR-only staff: no account, just a name on this phone.
       const name = guestName(req.body);

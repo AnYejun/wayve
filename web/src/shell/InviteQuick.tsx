@@ -6,6 +6,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'sonner';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
+import { withKey } from '@/lib/links';
 
 type Kind = 'staff' | 'guest' | 'camera' | 'scribe';
 const LINKS: Array<{ kind: Kind; label: string; hint: string }> = [
@@ -19,10 +20,10 @@ async function copy(text: string): Promise<boolean> {
   try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
 }
 
-export function InviteQuick({ joinCode }: { joinCode: string }) {
+export function InviteQuick({ joinCode, joinKey }: { joinCode: string; joinKey?: string }) {
   const [copied, setCopied] = useState<Kind | null>(null);
   const [qr, setQr] = useState<Kind>('staff');
-  const url = (k: Kind) => `${location.origin}/j/${joinCode}?as=${k}`;
+  const url = (k: Kind) => (k === 'guest' ? `${location.origin}/j/${joinCode}?as=guest` : withKey(`${location.origin}/j/${joinCode}?as=${k}`, joinKey));
 
   const doCopy = async (k: Kind) => {
     const ok = await copy(url(k));

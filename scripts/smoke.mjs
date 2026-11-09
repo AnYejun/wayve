@@ -37,16 +37,33 @@ ok(r.status === 401, 'outsider blocked (401)');
 
 r = await call(cam, 'GET', `/api/join/${ev.joinCode}`);
 ok(r.status === 200 && r.json.zones.length === 3, 'join preview');
-r = await call(cam, 'POST', '/api/join', { code: ev.joinCode, as: 'camera', zoneId: zone.id });
+r = await call(cam, 'POST', '/api/join', { code: ev.joinCode, key: ev.joinKey, as: 'camera', zoneId: zone.id });
 ok(r.status === 200 && r.json.device.zoneId === zone.id && r.json.me.role === 'camera', `camera joined → ${r.json.device?.label}`);
 const camDev = r.json.device;
+// The attendee poster code alone must not join as staff or as a device: those links carry the organizer's join key.
+ok(typeof ev.joinKey === 'string' && ev.joinKey.length >= 8, 'organizer gets the join key at event creation');
+r = await call(jar(), 'POST', '/api/join', { code: ev.joinCode, as: 'staff', name: 'Mallory' });
+ok(r.status === 403 && r.json.error?.code === 'NEEDS_STAFF_LINK', 'staff join without the join key → 403');
+r = await call(jar(), 'POST', '/api/join', { code: ev.joinCode, as: 'camera', zoneId: zone.id });
+ok(r.status === 403, 'camera join without the join key → 403');
+r = await call(jar(), 'POST', '/api/join', { code: ev.joinCode, key: 'wrong-key-00', as: 'scribe' });
+ok(r.status === 403, 'scribe join with a wrong key → 403');
+r = await call(jar(), 'POST', '/api/events/join-by-code', { code: ev.joinCode, as: 'staff', name: 'Mallory' });
+ok(r.status === 403, 'join-by-code without the join key → 403');
+r = await call(cam, 'POST', '/api/join', { code: ev.joinCode, as: 'camera', zoneId: zone.id });
+ok(r.status === 200 && r.json.device.id === camDev.id, 'a joined camera re-scans without the key');
+r = await call(cam, 'GET', `/api/events/${ev.id}/snapshot`);
+ok(r.status === 200 && !r.json.joinKey && r.json.messages.length === 0 && r.json.reports.length === 0 && r.json.activity.length === 0
+  && r.json.participants.every((p) => p.id === r.json.me.participantId) && r.json.crew.every((a) => !a.instructions), 'camera gets a device view (no radio, people, prompts or join key)');
+r = await call(admin, 'GET', `/api/events/${ev.id}/snapshot`);
+ok(r.json.joinKey === ev.joinKey, 'admin snapshot carries the join key');
 
 // QR-only staff: no account — a name (+ team) is enough for radio, reports and the live event.
 const qr = jar();
-r = await call(qr, 'POST', '/api/join', { code: ev.joinCode, as: 'staff', name: 'Dana', teamId: teams.Registration });
+r = await call(qr, 'POST', '/api/join', { code: ev.joinCode, key: ev.joinKey, as: 'staff', name: 'Dana', teamId: teams.Registration });
 ok(r.status === 200 && r.json.me.role === 'staff' && r.json.me.displayName === 'Dana' && r.json.device?.deviceType === 'reporter', 'QR-only staff joins without an account (name + team)');
 const qrMe = r.json.me;
-r = await call(qr, 'POST', '/api/join', { code: ev.joinCode, as: 'staff', name: 'Dana K' });
+r = await call(qr, 'POST', '/api/join', { code: ev.joinCode, key: ev.joinKey, as: 'staff', name: 'Dana K' });
 ok(r.status === 200 && r.json.me.participantId === qrMe.participantId && r.json.me.displayName === 'Dana K', 're-scan reuses the same phone identity (and renames)');
 r = await call(qr, 'GET', `/api/events/${ev.id}/snapshot`);
 ok(r.status === 200 && r.json.me.role === 'staff', 'QR-only staff opens the live event');
@@ -60,7 +77,7 @@ r = await call(qr, 'GET', `/api/events/${ev.id}/data/issues`);
 ok(r.status === 403, 'QR-only staff cannot open the organizer database (403)');
 
 await signup(staff, 'Sam');
-r = await call(staff, 'POST', '/api/join', { code: ev.joinCode, as: 'staff', name: 'ignored', teamId: teams.Registration });
+r = await call(staff, 'POST', '/api/join', { code: ev.joinCode, key: ev.joinKey, as: 'staff', name: 'ignored', teamId: teams.Registration });
 ok(r.status === 200 && r.json.me.role === 'staff' && r.json.me.displayName === 'Sam', `staff joined → ${r.json.me?.displayName} (name from account)`);
 const staffMe = r.json.me;
 r = await call(staff, 'PATCH', `/api/devices/${staffMe.deviceId}`, { zoneId: zone.id });

@@ -1,8 +1,8 @@
 // Map: the live venue (zones tinted by status, issue/report pins, devices with coverage) + zone list, or the full zone table.
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { Check, Map as MapIcon, Move, Rows3, Settings2 } from 'lucide-react';
-import { Link } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
 import { CROWD_LABEL, type Device, type Issue } from '@shared/contracts';
 import { VenueMap } from '@/components/VenueMap';
@@ -32,6 +32,15 @@ export default function MapSection() {
   const [issueId, setIssueId] = useState<string | null>(null);
   const [reportId, setReportId] = useState<string | null>(null);
   const [placing, setPlacing] = useState(false);
+  // Zone links from assistant answers (map?zone=<id>) open that zone, then drop the param.
+  const [params, setParams] = useSearchParams();
+  const zoneParam = params.get('zone');
+  const hasZone = !!zoneParam && !!snap?.zones.some((x) => x.id === zoneParam);
+  useEffect(() => {
+    if (!zoneParam || !hasZone) return;
+    setZoneId(zoneParam);
+    setParams((p) => { p.delete('zone'); return p; }, { replace: true });
+  }, [zoneParam, hasZone, setParams]);
 
   const zones = useMemo(() => (snap ? [...snap.zones].sort((a, b) => STATUS_ORDER[b.status] - STATUS_ORDER[a.status] || a.name.localeCompare(b.name)) : []), [snap]);
   if (!snap) return <Page bleed><Skeleton className="h-9 w-40" /><Skeleton className="mt-6 h-[620px] w-full rounded-[14px]" /></Page>;

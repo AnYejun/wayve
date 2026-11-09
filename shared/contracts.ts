@@ -234,6 +234,8 @@ export interface Snapshot extends OpsState, ReportsState, CrewState {
   attendees: AttendeeStats;
   ai: AiInfo;
   serverTime: number;
+  /** Organizers only: the `k` secret for staff/camera/scribe join links (not on the attendee poster). */
+  joinKey?: string;
 }
 
 // ── SSE: GET /api/events/:eventId/stream (cookie auth). Frames are `event: <name>\ndata: <json>` ─────────────────────
@@ -250,7 +252,7 @@ export type StreamFrame =
   | { event: 'zone_removed'; data: { id: string } }
   | { event: 'event'; data: EventInfo }   // event-level change (name, map, grid)
   | { event: 'pulse'; data: DevicePulse } // ephemeral live signal (never stored)
-  | { event: 'agent'; data: CrewAgent } | { event: 'agent_post'; data: AgentPost }
+  | { event: 'agent'; data: CrewAgent } | { event: 'agent_post'; data: AgentPost } | { event: 'agent_removed'; data: { id: string } }
   | { event: 'hb'; data: { t: number } };
 
 export const sseFrame = (event: string, data: unknown) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -321,11 +323,16 @@ export interface InstallSlot {
   persona: AgentRole | null;
   agentName?: string;             // crew agent bound to this slot (idempotent per slot)
   team?: string | null;           // team the agent radios / the scribe belongs to
+  /** Multi-zone cameras: default regions on the camera's own view (normalized 0..1, primary zone first). Applied when the
+   *  phone takes the slot, so every zone it covers gets readings without calibration; recalibrate any time. */
+  regions?: Array<{ zone: string; polygon: Array<[number, number]> }>;
 }
 
 export interface CreateEventBody { name: string; templateId: string }
 /** as 'attendee' → POST /api/join returns { me, device: null } and the phone goes to /chat. */
-export interface JoinBody { code: string; as: 'camera' | 'staff' | 'attendee' | 'scribe'; zoneId?: string | null; name?: string | null; teamId?: string | null; slot?: string | null }
+/** key: the organizer's join secret (`k` in staff/camera/scribe links). Required for every role except attendee, unless this
+ *  browser/account already holds that role (or higher) in the event. */
+export interface JoinBody { code: string; as: 'camera' | 'staff' | 'attendee' | 'scribe'; key?: string | null; zoneId?: string | null; name?: string | null; teamId?: string | null; slot?: string | null }
 export interface ManualBody { zoneId?: string | null; crowdLevel?: CrowdLevel | null; issueType?: IncidentType | null; note?: string | null }
 
 /** Result of any observation write: the immutable observation + every world change it caused. */
@@ -644,7 +651,8 @@ export interface Report {
   parentReportId: string | null;  // "Add update" follow-ups
   createdAt: number;
 }
-// POST /api/reports  JSON {eventId, zoneId?, category, urgency, text?, photo? (data:image/jpeg;base64,… ≤ 1600px), audio? (data:audio/…;base64,…), parentReportId?}
+// POST /api/reports  JSON {eventId, zoneId?, hereZoneId? (where the reporter is; used only when the report names no zone), category ('auto' = AI decides), urgency ('auto' = AI decides), text?, photo? (data:image/jpeg;base64,… ≤ 1600px),
+//      photos? (≤ 4 data URLs — e.g. key frames of a chat video; the first is stored), audio? (data:audio/…;base64,…), parentReportId?}
 //      → { report: Report, issue: Issue | null }          (≤ 8 MB body; at least one of text / photo / audio)
 // GET  /api/reports?eventId=&mine=1 → { reports: Report[] }  (newest first)
 // GET  /api/reports/:id → { report, issue: Issue | null, related: Report[] }
@@ -1168,3 +1176,10 @@ export interface Member {
 // GET  /api/presets/slot/:joinCode/:slotId → { event: EventInfo, slot: InstallSlot } (public; for the setup screen).
 // POST /api/join {code, as: 'camera' | 'scribe', slot} → the device takes the slot's label, zone, map position and team, and the slot's
 //      crew persona is created or re-bound to it (re-scanning moves the slot to the new phone).
+
+// ── Phone v4: chat-first staff app + swipe decisions ─────────────────────────────────────────────────────────────────
+// Field staff phones show only Chat (assistant; photo/video attachments become field reports) and Radio. New assignments
+// arrive as swipe cards: right = accept (issue → in_progress, my location → its zone), left = decline.
+// POST /api/issues/:id/decline {reason?} → { issue }   (the assignee hands it back; an issue_event "Declined by <name>" is
+//      recorded; the dispatcher will not offer it to the same person again)
+export interface DeclineBody { reason?: string | null }

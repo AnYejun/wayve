@@ -336,6 +336,20 @@ export function changeIssue(issueId: string, ch: IssueChange, actor: Actor, evid
   return frames;
 }
 
+/**
+ * The assignee passes on an issue (swipe left on the phone): unassign with a readable "Declined" entry. The dispatcher reads
+ * these events (field assignee_id, from_raw = actor_id, to_raw NULL) to re-offer the issue to someone else, never the decliner.
+ */
+export function declineIssue(issueId: string, by: Actor, reason: string | null, now = Date.now()): Frame[] {
+  const cur = getIssueRow(issueId);
+  if (!cur?.assignee_id) return [];
+  q.run('UPDATE issues SET assignee_id = NULL, updated_at = ?, version = version + 1 WHERE id = ?', now, issueId);
+  const who = by.id === cur.assignee_id ? '' : ` for ${personName(cur.assignee_id)}`;
+  const label = `Declined${who}${reason?.trim() ? ` — ${reason.trim().slice(0, 140)}` : ''}`;
+  const ev = addIssueEvent(cur, 'assignee', 'assignee_id', cur.assignee_id, null, personName(cur.assignee_id), label, by, [], null, now);
+  return issueFrames(issueId, [ev]);
+}
+
 /** Undo one AI/rule change (only if the field still holds the value that change set). */
 export function undoIssueEvent(eventRowId: number, by: Actor, now = Date.now()): { frames: Frame[]; issueId: string } | { error: string } {
   const e = q.get<IssueEventRow>('SELECT * FROM issue_events WHERE id = ?', eventRowId);
@@ -356,10 +370,21 @@ export function undoIssueEvent(eventRowId: number, by: Actor, now = Date.now()):
 
 const SEV_TO_PRIORITY: Record<string, Priority> = { critical: 'p0', high: 'p1', medium: 'p2', low: 'p3' };
 
+const lastEvidenceEventAt = new Map<string, number>(); // issueId → last camera-evidence history row
+const EVIDENCE_EVENT_GAP_MS = 60_000;
+
 export function mirrorIncident(inc: Incident, zoneName: string, assigneeId: string | null, observationIds: string[], now: number): Frame[] {
   const existing = q.get<IssueRow>('SELECT * FROM issues WHERE incident_id = ?', inc.id);
   const evidence: RefKey[] = observationIds.map((id) => ({ type: 'observation', id }));
-  if (existing) return changeIssue(existing.id, inc.severity === 'critical' && existing.priority !== 'p0' ? { priority: 'p0' } : {}, RULE_ACTOR, evidence, null, now);
+  if (existing) {
+    if (inc.severity === 'critical' && existing.priority !== 'p0') return changeIssue(existing.id, { priority: 'p0' }, RULE_ACTOR, evidence, null, now);
+    // Camera frames on an open incident arrive every few seconds: link the evidence quietly and write at most one
+    // "evidence added" history row (+ issue frame) per issue per minute, so History and every screen aren't flooded.
+    if (now - (lastEvidenceEventAt.get(existing.id) ?? 0) < EVIDENCE_EVENT_GAP_MS) { linkEvidence(existing.id, evidence, now); return []; }
+    if (lastEvidenceEventAt.size > 5000) lastEvidenceEventAt.clear();
+    lastEvidenceEventAt.set(existing.id, now);
+    return changeIssue(existing.id, {}, RULE_ACTOR, evidence, null, now);
+  }
   const { frames } = createIssue({
     eventId: inc.eventId, title: `${zoneName} · ${INCIDENT_LABEL[inc.incidentType]}`, kind: 'problem', priority: SEV_TO_PRIORITY[inc.severity] ?? 'p2',
     teamId: null, assigneeId, assigneeHint: null, dueAt: null, zoneId: inc.zoneId, incidentId: inc.id, actor: RULE_ACTOR, evidence, confidence: null, now,

@@ -18,9 +18,9 @@ ok(snap.teams.length === 4, `default teams: ${snap.teams.map((t) => t.name).join
 const team = Object.fromEntries(snap.teams.map((t) => [t.name, t.id]));
 await signup(jimin, KO ? '지민' : 'Jimin');
 await signup(minsu, KO ? '민수' : 'Minsu');
-const j = (await call(jimin, 'POST', '/api/join', { code: ev.joinCode, as: 'staff', teamId: team.Registration })).json;
-const m = (await call(minsu, 'POST', '/api/join', { code: ev.joinCode, as: 'staff', teamId: team.Stage })).json;
-const s = (await call(scribe, 'POST', '/api/join', { code: ev.joinCode, as: 'scribe', teamId: team.HQ })).json;
+const j = (await call(jimin, 'POST', '/api/join', { code: ev.joinCode, key: ev.joinKey, as: 'staff', teamId: team.Registration })).json;
+const m = (await call(minsu, 'POST', '/api/join', { code: ev.joinCode, key: ev.joinKey, as: 'staff', teamId: team.Stage })).json;
+const s = (await call(scribe, 'POST', '/api/join', { code: ev.joinCode, key: ev.joinKey, as: 'scribe', teamId: team.HQ })).json;
 ok(j.me.displayName && s.device.deviceType === 'scribe', `joined: ${j.me.displayName}, ${m.me.displayName}, ${s.device.label}`);
 
 const t0 = Date.now();

@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils';
 import { useShell } from '../context';
 import { DeviceSignal } from '../live/pulse';
 import { Empty, KpiStrip, Page, PanelTitle, SectionHeader, panel } from '../ui';
+import { withKey } from '@/lib/links';
 
 const GROUPS: Array<{ type: Device['deviceType']; title: string; icon: typeof Camera; empty: string }> = [
   { type: 'camera', title: 'Cameras', icon: Camera, empty: 'Scan a zone camera QR with a spare phone.' },
@@ -158,9 +159,9 @@ function AddDevice({ snap, open, onOpenChange }: { snap: Snapshot; open: boolean
       <SheetContent side="right" className="w-full gap-0 overflow-y-auto p-6 sm:max-w-[480px]">
         <SheetHeader className="mb-4 p-0"><SheetTitle>Add a device</SheetTitle><SheetDescription>Scan with the phone you want to connect. No app to install.</SheetDescription></SheetHeader>
         <div className="space-y-3">
-          {snap.zones.map((z) => <Q key={z.id} label={`Camera · ${z.name}`} sub="Point it at this zone and tap Start." url={`${origin}/j/${code}?as=camera&z=${z.id}`} />)}
-          {snap.teams.map((t) => <Q key={t.id} label={`Meeting scribe · ${t.name}`} sub="Leave it on the meeting table. Speech becomes tasks." url={`${origin}/j/${code}?as=scribe&team=${t.id}`} />)}
-          <Q label="Staff phone" sub="Staff sign in with their WAYVE ID." url={`${origin}/j/${code}?as=staff`} />
+          {snap.zones.map((z) => <Q key={z.id} label={`Camera · ${z.name}`} sub="Point it at this zone and tap Start." url={withKey(`${origin}/j/${code}?as=camera&z=${z.id}`, snap.joinKey)} />)}
+          {snap.teams.map((t) => <Q key={t.id} label={`Meeting scribe · ${t.name}`} sub="Leave it on the meeting table. Speech becomes tasks." url={withKey(`${origin}/j/${code}?as=scribe&team=${t.id}`, snap.joinKey)} />)}
+          <Q label="Staff phone" sub="Staff sign in with their WAYVE ID." url={withKey(`${origin}/j/${code}?as=staff`, snap.joinKey)} />
         </div>
       </SheetContent>
     </Sheet>

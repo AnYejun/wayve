@@ -39,7 +39,12 @@ export default function AssistantSection() {
   const handsFreeRef = useRef(handsFree);
   handsFreeRef.current = handsFree;
   const startRef = useRef<() => void>(() => {});
-  const asst = useAssistant(eventId, { onSpeechEnd: () => { if (handsFreeRef.current) setTimeout(() => startRef.current(), 400); } });
+  // Leaving the page must end hands-free: unmount stops speech, which would otherwise re-arm an unowned mic.
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; handsFreeRef.current = false; }; }, []);
+  const asst = useAssistant(eventId, { onSpeechEnd: () => {
+    if (alive.current && handsFreeRef.current) setTimeout(() => { if (alive.current && handsFreeRef.current) startRef.current(); }, 400);
+  } });
   const rec = useRecorder({
     maxMs: 45_000,
     onBlob: async (blob) => { await asst.askVoice(blob, { speak: true }); },

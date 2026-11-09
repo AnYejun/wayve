@@ -12,12 +12,13 @@ import { apiRouter } from './routes.ts';
 import { sseCount, startHeartbeat, stopHub } from './sse.ts';
 import { startEscalation } from './ops.ts';
 import { startCrew } from './crew.ts';
+import { backfillSlotRegions } from './presets.ts';
 import { startRadioSweeper } from './opsRoutes.ts';
 import { MEDIA_ROOT } from './media.ts';
 
 const app = express();
 app.disable('x-powered-by');
-app.set('trust proxy', true);
+app.set('trust proxy', 1); // exactly one proxy hop (Fly); `true` let clients spoof req.ip via X-Forwarded-For
 // Server-Timing on every response: DevTools shows pure server time ("app") apart from network time.
 app.use((_req, res, next) => {
   const t0 = performance.now();
@@ -57,6 +58,7 @@ if (fs.existsSync(dist)) {
 startHeartbeat();
 startEscalation();
 startCrew();
+backfillSlotRegions();
 startRadioSweeper();
 const server = listen(app, config.PORT, () => {
   log.info('server.listening', { port: config.PORT, release: config.RELEASE, ai: aiInfo().enabled, vision: aiInfo().visionModel });

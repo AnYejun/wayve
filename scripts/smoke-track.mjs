@@ -15,7 +15,7 @@ const byName = Object.fromEntries(snap.zones.map((z) => [z.name, z]));
 ok(snap.zones.every((z) => z.zoneType), `zone types inferred: ${snap.zones.map((z) => `${z.name}=${z.zoneType}`).join(', ')}`);
 const entrance = snap.zones.find((z) => z.zoneType === 'entrance') ?? snap.zones[0];
 const other = snap.zones.find((z) => z.id !== entrance.id);
-const j = (await call(cam, 'POST', '/api/join', { code: ev.joinCode, as: 'camera', zoneId: entrance.id })).json;
+const j = (await call(cam, 'POST', '/api/join', { code: ev.joinCode, key: ev.joinKey, as: 'camera', zoneId: entrance.id })).json;
 ok(!!j.device, `camera joined → ${entrance.name}`);
 
 for (let i = 0; i < 3; i++) {
