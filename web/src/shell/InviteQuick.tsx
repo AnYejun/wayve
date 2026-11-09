@@ -35,11 +35,10 @@ export function InviteQuick({ joinCode }: { joinCode: string }) {
   return (
     <div className="flex h-9 w-full items-stretch overflow-hidden rounded-[10px] bg-[#17150f] text-white shadow-[0_1px_2px_rgb(23_21_15/.18)]">
       <button type="button" onClick={() => void doCopy('staff')}
-        className="flex flex-1 items-center gap-2 px-3 text-[13px] font-semibold transition-[background-color,transform] active:scale-[.98] hover:bg-white/10"
+        className="flex min-w-0 flex-1 items-center gap-2 whitespace-nowrap px-3 text-[13px] font-semibold transition-[background-color,transform] active:scale-[.98] hover:bg-white/10"
         aria-label="Copy the staff invite link">
-        {copied === 'staff' ? <Check size={15} strokeWidth={2.25} /> : <Link2 size={15} strokeWidth={2} />}
-        <span>{copied === 'staff' ? 'Link copied' : 'Copy invite link'}</span>
-        <span className="ml-auto font-mono text-[11px] tracking-[.12em] text-white/60">{joinCode}</span>
+        {copied === 'staff' ? <Check size={15} strokeWidth={2.25} className="shrink-0" /> : <Link2 size={15} strokeWidth={2} className="shrink-0" />}
+        <span className="truncate">{copied === 'staff' ? 'Link copied' : 'Copy invite link'}</span>
       </button>
       <Popover>
         <PopoverTrigger asChild>

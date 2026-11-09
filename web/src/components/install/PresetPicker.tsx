@@ -26,8 +26,8 @@ function PresetCard({ t, selected, onClick, footer }: { t: VenueTemplate; select
   const Body = (
     <>
       <div className="relative overflow-hidden rounded-[12px] bg-[#f5f4f2] shadow-[inset_0_0_0_1px_rgb(23_21_15/.06)]">
-        <img src={t.map!.thumbUrl ?? t.map!.imageUrl} alt={`${t.name} floor plan`} className="aspect-[16/10] w-full object-cover object-top" loading="lazy" />
-        <span className="absolute top-2.5 left-2.5 inline-flex h-6 items-center gap-1 rounded-full bg-white/90 px-2 text-[11px] font-semibold tracking-[.02em] text-fg shadow-[0_1px_2px_rgb(23_21_15/.08)] backdrop-blur">
+        <img src={t.map!.thumbUrl ?? t.map!.imageUrl} alt={`${t.name} floor plan`} className="h-[190px] w-full object-contain object-center p-3 sm:h-[220px]" loading="lazy" />
+        <span className="absolute top-2.5 right-2.5 inline-flex h-6 items-center gap-1 rounded-full bg-white/90 px-2 text-[11px] font-semibold tracking-[.02em] text-fg shadow-[0_1px_2px_rgb(23_21_15/.08)] backdrop-blur">
           <Building2 className="size-3" strokeWidth={2} />Preset venue
         </span>
       </div>

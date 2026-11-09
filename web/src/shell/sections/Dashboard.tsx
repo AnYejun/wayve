@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { Inbox, X } from 'lucide-react';
 import { PRIORITIES, PRIORITY_LABEL, type Issue, type Priority, type Snapshot } from '@shared/contracts';
 import { AskBar } from '@/components/ops/AskBar';
+import { GoLive } from '../GoLive';
 import { IssueBoard, Pick, type BoardFilter } from '@/components/ops/IssueBoard';
 import { IssueSheet } from '@/components/ops/IssueSheet';
 import { CrewPostRow } from '../live/crew';
@@ -67,6 +68,7 @@ export default function DashboardSection() {
           </Button>
         } />
 
+      <GoLive />
       <div className="mt-6"><AskBar snap={snap} teamId={filter.teamId} onOpenIssue={openIssue} /></div>
 
       <div className="mt-5">

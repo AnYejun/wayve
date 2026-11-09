@@ -36,7 +36,7 @@ function CreateEvent() {
     setBusy(true);
     try {
       const r = await API.createEvent({ name: name.trim(), templateId: tpl });
-      nav(`/e/${r.event.id}/settings`);
+      nav(`/e/${r.event.id}/dashboard`);
     } catch (e) {
       if (e instanceof HttpError && e.status === 401) nav('/login?next=/setup');
       else toast.error((e as Error).message);

@@ -19,6 +19,8 @@ export function MapSource({ eventId, map, zones, onAccept, onBlank }: {
   eventId: string; map: VenueMapInfo | null; zones: Zone[]; onAccept: (s: ZoneSuggestion[]) => void; onBlank?: () => void;
 }) {
   const [busy, setBusy] = useState<Busy>(null);
+  const [change, setChange] = useState(false);
+  const presetInUse = !!map?.presetId && !change;
   const [suggestions, setSuggestions] = useState<ZoneSuggestion[]>([]);
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
@@ -69,6 +71,16 @@ export function MapSource({ eventId, map, zones, onAccept, onBlank }: {
     <div>
       <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden"
         onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void upload(f); }} />
+      {presetInUse ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-[16px] border border-[rgb(23_21_15/.1)] bg-white px-5 py-4">
+          <span className="grid size-9 shrink-0 place-items-center rounded-[10px] bg-[#58a069] text-white"><Check className="size-4" strokeWidth={2.5} /></span>
+          <div className="min-w-0 flex-1">
+            <div className="text-[15px] font-semibold text-fg">Using the Startup Branch venue</div>
+            <div className="text-[13px] text-fg-2">Real floor plan · {zones.length} zones · camera and scribe install plan. Edit zones below.</div>
+          </div>
+          <button type="button" onClick={() => setChange(true)} className="h-8 rounded-full px-3 text-[13px] font-medium text-fg-2 shadow-[inset_0_0_0_.5px_rgb(23_21_15/.2)] transition-colors hover:bg-[rgb(23_21_15/.04)] hover:text-fg">Change source</button>
+        </div>
+      ) : (<>
       <motion.div className="grid gap-3 sm:grid-cols-2" initial="initial" animate="animate" variants={{ animate: { transition: { staggerChildren: 0.05 } } }}>
         <motion.button type="button" variants={rise} whileTap={{ scale: 0.985 }} onClick={() => void blank()} disabled={!!busy}
           className={cn('flex items-start gap-4 rounded-[18px] border bg-white p-5 text-left transition-[border-color,box-shadow]',
@@ -96,7 +108,8 @@ export function MapSource({ eventId, map, zones, onAccept, onBlank }: {
         </motion.div>
       </motion.div>
 
-      <div className="mt-6"><PresetApply eventId={eventId} currentPresetId={map?.presetId ?? null} onApplied={() => { setSuggestions([]); onBlank?.(); }} /></div>
+      <div className="mt-6"><PresetApply eventId={eventId} currentPresetId={map?.presetId ?? null} onApplied={() => { setSuggestions([]); setChange(false); onBlank?.(); }} /></div>
+      </>)}
 
       {hasImage ? (
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={spring.smooth} className="mt-4">

@@ -29,7 +29,7 @@ export default function DevicesSection() {
   const { snap, eventId } = useShell();
   const now = useNow(1000);
   const [selected, setSelected] = useState<string | null>(null);
-  const [plan, setPlan] = useState(false);
+  const [plan, setPlan] = useState(() => new URLSearchParams(location.search).get('plan') === '1');
   const [calibrate, setCalibrate] = useState(false);
   const [adding, setAdding] = useState(false);
 
