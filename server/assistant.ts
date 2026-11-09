@@ -1,5 +1,6 @@
 // Staff assistant turn (chat or voice): a full read-only picture of the venue goes to the model; it answers and, for clear
 // commands from the asker, proposes tracker actions that ops.applyAction applies (auto above the bar, else a suggestion).
+import { venueLayout } from './layout.ts';
 import { crewState } from './crew.ts';
 import { zoneLine } from './zoneTrack.ts';
 import {
@@ -112,6 +113,9 @@ export function buildContext(asker: ParticipantRow, question: string): { text: s
       return `- ${z.name}: ${ZONE_STATUS_LABEL[z.current_status as ZoneStatus]}${z.crowd_level ? ` (${CROWD_LABEL[z.crowd_level as CrowdLevel]})` : ''}`
         + `${z.people_estimate != null ? ` · ~${z.people_estimate} people` : ''} · last observed ${ago(z.last_observed_at, now)}${z.last_observed_at && now - z.last_observed_at > ZONE_STALE_MS ? ' (STALE)' : ''}`;
     }) : ['- none']),
+    '',
+    'VENUE LAYOUT (floor plan):',
+    ...(venueLayout(zones).length ? venueLayout(zones) : ['- unknown']),
     '',
     'CAMERAS & SCRIBES:',
     ...(deviceLines.length ? deviceLines : ['- none']),

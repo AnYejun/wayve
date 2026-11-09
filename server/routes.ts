@@ -21,6 +21,7 @@ import { RULE_STEPS, acknowledgeIncident, applyObservation, resolveIncident } fr
 import { changeIssue, closeIssueForIncident, createIssue, getIssueRow, insertUtterance, issueKey, mirrorIncident, opsState, listTeams, toUtterance, type IssueRow } from './ops.ts';
 import { opsRouter } from './opsRoutes.ts';
 import { emitPulse } from './pulse.ts';
+import { venueLayout } from './layout.ts';
 import { authRouter, currentUser } from './auth.ts';
 import { dataRouter } from './dataRoutes.ts';
 import { v3Router } from './v3Routes.ts';
@@ -799,6 +800,7 @@ export function apiRouter() {
       `Attendee's current location: ${myZone?.name ?? 'unknown'}`,
       'Current crowd level per zone (from staff cameras):',
       ...publicZones(ev.id).map((z) => `- ${z.name}: ${z.crowdLevel ? CROWD_LABEL[z.crowdLevel] : 'no data'}${z.peopleEstimate != null ? ` · ~${z.peopleEstimate} people` : ''} · last seen ${mins(z.lastObservedAt)}`),
+      ...(venueLayout(zones).length ? ['Venue layout (positions on the floor plan; "above" = toward the top of the plan):', ...venueLayout(zones)] : []),
       ...(getKnowledge(ev.id) ? ['Event info from the organizers (answer from this when relevant):', getKnowledge(ev.id).slice(0, 9000)] : []),
       ...(conciergeInstructions(ev.id) ? [`Your persona (set by the organizers): ${conciergeInstructions(ev.id)!.slice(0, 600)}`] : []),
     ].join('\n');

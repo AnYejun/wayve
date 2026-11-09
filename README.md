@@ -56,6 +56,17 @@ next one), and watches every issue until it is resolved.
 - **Venue presets.** Startup Branch ships its real floor plan, 8 zones, a stage install plan (two cameras, one scribe, the
   attendee QR on the front screen), a printable install sheet and the event's own info for the assistants.
 
+## Business model
+
+Event operations as a service: organizers pay per event-day, venues pay monthly. Full model, unit economics and go-to-market:
+[docs/BUSINESS.md](docs/BUSINESS.md).
+
+| Free | Event Pass | Pro Event | Venue | Enterprise |
+| --- | --- | --- | --- | --- |
+| ₩0 · 1 event, 50 attendees | **₩290,000 / event-day** · up to 500 people | ₩790,000 / event-day · up to 3,000 | ₩1,900,000 / month · unlimited events | from ₩30M / year · festivals, SLA |
+
+~80–85% gross margin per Event Pass day (AI and hosting ≈ ₩30–60k). No hardware: it runs on the phones staff already carry.
+
 ## Surfaces
 
 | Who | Where | What |
