@@ -1,0 +1,46 @@
+# WAYVE — SQLite single writer + in-process SSE → exactly ONE machine. Always deploy with --ha=false.
+app = "wayve"
+primary_region = "nrt"
+swap_size_mb = 512
+kill_signal = "SIGINT"
+kill_timeout = 10
+
+[build]
+
+[env]
+  PORT = "8080"
+  NODE_ENV = "production"
+  DATA_DIR = "/app/data"
+  PUBLIC_ORIGIN = "https://wayve.fly.dev"
+  OPENAI_VISION_MODEL = "gpt-6-luna"
+  OPENAI_TEXT_MODEL = "gpt-6-luna"
+  OPENAI_TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe"
+  OPENAI_REASONING_EFFORT = "none"
+
+[[mounts]]
+  source = "wayve_data"
+  destination = "/app/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"     # live phones + SSE: never sleep
+  auto_start_machines = true
+  min_machines_running = 1
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 1000
+
+[checks]
+  [checks.alive]
+    type = "http"
+    port = 8080
+    method = "GET"
+    path = "/healthz"
+    grace_period = "10s"
+    interval = "15s"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "1024mb"
